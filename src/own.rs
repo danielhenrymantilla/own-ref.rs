@@ -59,7 +59,7 @@ impl<T : ?Sized> Drop for OwnRef<'_, T> {
 }
 
 #[macro_export]
-macro_rules! own {( $value:expr $(,)? ) => ({
+macro_rules! own_ref {( $value:expr $(,)? ) => ({
     #[allow(warnings, clippy::all, clippy::pedantic)] {
         OwnRef {
             _phantom: $crate::ඞ::nudge_type_inference(if false {
@@ -101,7 +101,7 @@ impl<'frame, T : ?Sized> OwnRef<'frame, T> {
         T : Sized,
     {
         let yield_ = scope;
-        yield_(own!(value))
+        yield_(own_ref!(value))
     }
 
     /// # Safety

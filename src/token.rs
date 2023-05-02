@@ -6,7 +6,7 @@ struct Unsafe(
 impl Unsafe {
     /// # Safety
     ///
-    /// None (only [`crate::own!`] knows how to use this properly).
+    /// None (only [`crate::own_ref!`] knows how to use this properly).
     ///
     /// Are you a macro?
     ///
