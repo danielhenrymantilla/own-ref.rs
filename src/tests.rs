@@ -15,9 +15,9 @@ fn _main()
     }
     {
         let mut storage = Slot::VACANT;
-        let o = storage.hold(new(0));
+        let o = storage.holding(new(0));
         drop(o);
-        let o = storage.hold(new(1));
+        let o = storage.holding(new(1));
         drop(o);
     }
     {
@@ -29,8 +29,8 @@ fn _main()
     }
     {
         let (storage, storage2) = &mut slots();
-        if false { storage2.hold(()); }
-        let _o: OwnRef<'_, dyn FnOnce()> = unsize!(storage.hold(|| ()));
+        if false { storage2.holding(()); }
+        let _o: OwnRef<'_, dyn FnOnce()> = unsize!(storage.holding(|| ()));
     }
     {
         let local: &str = &String::from("…");
