@@ -87,12 +87,11 @@ impl<'frame, T : ?Sized> OwnRef<'frame, T> {
     /// ```rust
     /// use ::own_ref::*;
     ///
-    /// let mut called = false;
-    /// OwnRef::with(String::from("…"), |o: OwnRef<'_, String>| {
+    /// let x = OwnRef::with(String::from("…"), |o: OwnRef<'_, String>| {
     ///     assert_eq!(&o[..], "…");
-    ///     called = true;
+    ///     42
     /// });
-    /// assert!(called);
+    /// assert_eq!(x, 42);
     /// ```
     pub
     fn with<R>(value: T, scope: impl FnOnce(OwnRef<'_, T>) -> R)
