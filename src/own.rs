@@ -1,7 +1,7 @@
 use super::*;
 
 pub
-struct OwnRef<'frame, T : 'frame + ?Sized> {
+struct OwnRef<'slot, T : 'slot + ?Sized> {
     /// Mutating this field is unsound; it is only exposed for macro reasons and
     /// must be deemed private / `unsafe` to access otherwise.
     ///
@@ -25,24 +25,24 @@ struct OwnRef<'frame, T : 'frame + ?Sized> {
     _unsafe_to_construct: Unsafe,
 
     #[doc(hidden)] /** Not part of the public API */ pub
-    _phantom: PhantomOwn<'frame, T>,
+    _phantom: DetailedPhantomData<'slot, T>,
 
     #[doc(hidden)] /** Not part of the public API */ pub
     // Used for the soundness of the macro-construction.
     // Note: I'd love to be able to squash this into `_phantom`, or at least
-    // some other ZST (_e.g._, `[&'frame (); 0]`), but I haven't found a way to:
+    // some other ZST (_e.g._, `[&'slot (); 0]`), but I haven't found a way to:
     //   - get lifetime extension to kick in (so no `if false` shenanigans);
-    //   - get the `'frame` to actually match the lifetime of a temporary, rather
+    //   - get the `'slot` to actually match the lifetime of a temporary, rather
     //     than it becoming unbounded (which, alas, happens inside a `[_; 0]`).
-    _temporary_lt: &'frame (),
+    _temporary_lt: &'slot (),
 }
 
-/// What is a `&'frame own T`, after all?
+/// What is a `&'slot own T`, after all?
 #[allow(type_alias_bounds)]
-type PhantomOwn<'frame, T : ?Sized> = PD<(
-    // 1: it is a `&'frame mut` reference to its backing memory.
-    &'frame mut [MU<u8>],
-    // 2: it is an owned `T` instance.
+type DetailedPhantomData<'slot, T : ?Sized> = PD<(
+    //  1. it is a `&'slot mut` reference to its backing memory.
+    &'slot mut [MU<u8>],
+    //  2. it is an owned `T` instance.
     T,
     // Note: `2.` is only needed with a `#[may_dangle]` drop impl
     // but we keep it nonetheless for the sake of documentation (to explain why
@@ -78,12 +78,12 @@ macro_rules! own_ref {( $value:expr $(,)? ) => ({
 pub
 fn nudge_type_inference<'unbounded, T : ?Sized>(
     _: [&'_ T; 0],
-) -> PhantomOwn<'unbounded, T>
+) -> DetailedPhantomData<'unbounded, T>
 {
     PD
 }
 
-impl<'frame, T : ?Sized> OwnRef<'frame, T> {
+impl<'slot, T : ?Sized> OwnRef<'slot, T> {
     /// ```rust
     /// use ::own_ref::*;
     ///
@@ -109,8 +109,8 @@ impl<'frame, T : ?Sized> OwnRef<'frame, T> {
     pub
     unsafe
     fn from_raw(
-        r: &'frame mut MD<T>,
-    ) -> OwnRef<'frame, T>
+        r: &'slot mut MD<T>,
+    ) -> OwnRef<'slot, T>
     {
         Self {
             r#unsafe: (&mut **r) as *mut _,
@@ -122,8 +122,8 @@ impl<'frame, T : ?Sized> OwnRef<'frame, T> {
 
     pub
     fn into_raw(
-        self: OwnRef<'frame, T>,
-    ) -> &'frame mut MD<T>
+        self: OwnRef<'slot, T>,
+    ) -> &'slot mut MD<T>
     {
         #![allow(clippy::transmute_ptr_to_ref)] // `?Sized`.
         unsafe {
@@ -170,8 +170,8 @@ mod autotraits {
         T : ::core::panic::UnwindSafe,
     {}
 
-    impl<'frame, T : ?Sized> Unpin for OwnRef<'frame, T>
+    impl<'slot, T : ?Sized> Unpin for OwnRef<'slot, T>
     where
-        &'frame mut T : Unpin,
+        &'slot mut T : Unpin,
     {}
 }

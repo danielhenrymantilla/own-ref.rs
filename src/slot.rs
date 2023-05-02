@@ -27,8 +27,8 @@ impl<T> Slot<T> {
     const VACANT: Self = Self(MU::uninit());
 
     pub
-    fn holding(self: &'_ mut Slot<T>, value: T)
-      -> OwnRef<'_, T>
+    fn holding<'slot>(self: &'slot mut Slot<T>, value: T)
+      -> OwnRef<'slot, T>
     {
         self.0.holding(value)
     }
@@ -36,10 +36,10 @@ impl<T> Slot<T> {
 
 #[extension(pub trait MaybeUninitExt)]
 impl<T> MU<T> {
-    fn holding<'r>(&'r mut self, value: T)
-      -> OwnRef<'r, T>
+    fn holding<'slot>(&'slot mut self, value: T)
+      -> OwnRef<'slot, T>
     {
-        let r: &'r mut T = self.write(value);
+        let r: &'slot mut T = self.write(value);
         unsafe {
             OwnRef::from_raw(
                 &mut *(<*mut T>::cast::<MD<T>>(r))
