@@ -49,7 +49,7 @@ type DetailedPhantomData<'slot, T : ?Sized> = PD<(
     // covariance in `T`, much like with `T` or `Box<T>`, is fine).
 )>;
 
-impl<T : ?Sized> Drop for OwnRef<'_, T> {
+impl<'slot, T : ?Sized> Drop for OwnRef<'slot, T> {
     fn drop(&mut self)
     {
         unsafe {
@@ -62,13 +62,9 @@ impl<T : ?Sized> Drop for OwnRef<'_, T> {
 macro_rules! own_ref {( $value:expr $(,)? ) => ({
     #[allow(warnings, clippy::all, clippy::pedantic)] {
         OwnRef {
-            _phantom: $crate::ඞ::nudge_type_inference(if false {
-                [&$value; 0]
-            } else {
-                []
-            }),
+            _unsafe_to_construct: unsafe { $crate::ඞ::Unsafe::new() },
+            _phantom: $crate::ඞ::nudge_type_inference([&$value; 0]),
             r#unsafe: &mut *$crate::ඞ::MD::new($value) as *mut _ as *const _,
-            _unsafe_to_construct: unsafe { Unsafe::new() },
             _temporary_lt: &::core::mem::drop(()),
         }
     }
@@ -132,11 +128,18 @@ impl<'slot, T : ?Sized> OwnRef<'slot, T> {
     }
 }
 
-impl<T : ?Sized> ::core::ops::DerefMut for OwnRef<'_, T> {
+#[macro_export]
+macro_rules! unsize {( $e:expr $(,)? ) => (
+    match $e { e => unsafe {
+        $crate::OwnRef::from_raw($crate::OwnRef::into_raw(e) as _)
+    }}
+)}
+
+impl<'slot, T : ?Sized> ::core::ops::DerefMut for OwnRef<'slot, T> {
     fn deref_mut(&mut self)
       -> &mut T
     {
-        impl<T : ?Sized> ::core::ops::Deref for OwnRef<'_, T> {
+        impl<'slot, T : ?Sized> ::core::ops::Deref for OwnRef<'slot, T> {
             type Target = T;
 
             fn deref(&self)

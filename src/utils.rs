@@ -1,8 +1,9 @@
-
+#[cfg(doctest)]
 macro_rules! compile_fail {(
+ $( #$attr:tt )*
     fn $fname:ident $($rest:tt)*
 ) => (
-    #[cfg(doctest)]
+ $( #$attr )*
     /// ```rust, compile_fail
     /// use ::own_ref::*;
     ///

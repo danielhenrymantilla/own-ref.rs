@@ -3,6 +3,7 @@
 #[macro_use]
 extern crate extension_traits;
 
+#[cfg(doctest)]
 #[macro_use]
 extern crate macro_rules_attribute;
 
@@ -48,12 +49,5 @@ where
     &'frame mut MD<T> : ::core::ops::CoerceUnsized<&'frame mut MD<U>>,
 {}
 
-// #[cfg(test)]
+#[cfg(any(test, doctest))]
 mod tests;
-
-#[macro_export]
-macro_rules! unsize {( $e:expr $(,)? ) => (
-    match $e { e => unsafe {
-        $crate::OwnRef::from_raw($crate::OwnRef::into_raw(e) as _)
-    }}
-)}

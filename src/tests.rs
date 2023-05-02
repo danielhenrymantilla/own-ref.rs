@@ -1,9 +1,7 @@
 use super::*;
 
 #[test]
-fn miri() { _main() }
-
-fn _main()
+fn main()
 {
     let new = |i| ::scopeguard::guard((), move |()| _ = dbg!(i));
     {
@@ -41,6 +39,7 @@ fn _main()
     }
 }
 
+#[cfg(doctest)]
 #[apply(compile_fail!)]
 fn moves_value_in()
 {
@@ -49,6 +48,7 @@ fn moves_value_in()
     drop(not_copy); // Error: use of moved value.
 }
 
+#[cfg(doctest)]
 #[apply(compile_fail!)]
 fn not_static()
 {
@@ -57,6 +57,7 @@ fn not_static()
     let _: OwnRef<'static, _> = own_ref!(String::from("…"));
 }
 
+#[cfg(doctest)]
 #[apply(compile_fail!)]
 fn bound_to_scope_of_creation()
 {
@@ -66,6 +67,7 @@ fn bound_to_scope_of_creation()
     };
 }
 
+#[cfg(doctest)]
 #[apply(compile_fail!)]
 fn lifetime_extension_is_brittle()
 {
@@ -74,4 +76,14 @@ fn lifetime_extension_is_brittle()
         let _o: OwnRef<'_, _> = identity(own_ref!(String::from("…")));
     } // Error: borrow might be used here, when `_o` is dropped
       // note: consider using a `let` binding to create a longer lived value
+}
+
+#[test]
+fn robust_way()
+{
+    use ::core::convert::identity;
+    let storage = &mut slot();
+    {
+        let _o: OwnRef<'_, _> = identity(storage.holding(String::from("…")));
+    }
 }
