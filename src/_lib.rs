@@ -16,11 +16,31 @@ pub use self::{
     slot::{MaybeUninitExt, Slot, slot, slots},
 };
 
-use self::ඞ::*;
+use self::{
+    ඞ::*,
+    prelude::*,
+};
 
 mod own;
+
+pub
+mod pin;
+
 mod slot;
+
 mod token;
+
+pub
+mod prelude {
+    pub use {
+        ::core::{
+            future::Future,
+            ops::Not as _,
+            pin::{pin, Pin},
+        },
+        crate::*,
+    };
+}
 
 #[doc(hidden)] /** Not part of the public API */ pub
 mod ඞ {
@@ -32,6 +52,12 @@ mod ඞ {
             mem::{
                 ManuallyDrop as MD,
                 MaybeUninit as MU,
+            },
+            pin::{
+                Pin,
+            },
+            ops::{
+                Not as _,
             },
         },
         crate::{

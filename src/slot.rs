@@ -42,7 +42,7 @@ impl<T> MU<T> {
         let r: &'slot mut T = self.write(value);
         unsafe {
             OwnRef::from_raw(
-                &mut *(<*mut T>::cast::<MD<T>>(r))
+                <*mut T>::cast::<MD<T>>(r), [],
             )
         }
     }
