@@ -26,7 +26,7 @@ impl Unsafe {
     ///     </details>
     pub
     unsafe
-    fn new()
+    fn token()
       -> Self
     {
         Self(())

@@ -1,83 +1,90 @@
 use super::*;
+use ::core::mem::ManuallyDrop;
 
 pub
 struct OwnRef<'slot, T : 'slot + ?Sized> {
-    /// Mutating this field is unsound; it is only exposed for macro reasons and
-    /// must be deemed private / `unsafe` to access otherwise.
+    // Since `OwnRef` fields are technically exposed (for the macro to work)
+    // we make it "more sound" by requiring an `unsafe`ty token:
+    #[doc(hidden)] /** Not part of the public API. */ pub
+    _unsafe_to_construct: Unsafe,
+    // Alas, this technically isn't 100% sound if we wanted to be pedantic,
+    // since users are technically capable of mutating the following field once
+    // they have their hands on a legitimate instance.
+    // Which is why the next field is named `unsafe`, to make it clearer that
+    // mutating it is not safe.
+
+    /// Not part of the public API.
     ///
-    #[doc(hidden)] /** Not part of the public API */ pub
+    /// Moreover, mutating this field is unsound; it is only exposed for macro
+    /// reasons and must be deemed private or `unsafe`-to-access otherwise.
+    #[doc(hidden)] pub
     // We *need* this field to be:
-    //   - Maximally variant. We can't be bivariant, but we know `_phantom` is
-    //     not contravariant, so we don't need to be contravariant either.
+    //   - Covariant in `<T>` (much like `T` and `Box<T>` are).
     //   - Compatible with lifetime extension shenanigans. This means:
     //       - either a `& mut? _`,
     //       - or a `* {const,mut} _` (since we can use `as _` casts)
     //       - or a braced struct thereof.
-    //   - Able to carry `Unique`-access provenance to the `T`.
-    // We'd love to have this field also be:
+    //   - Able to carry (exclusive) `Write`-access provenance to the `T`.
+    // Among the second point candidates:
+    //   - the first point only allows for `&` or `*const`;
+    //   - the third point only allows for `&mut` or `*{const,mut}`.
+    // Thence `*const`.
+    //
+    // While we'd also love to have this field be:
     //   - non-null
     //   - assumed well-aligned, and unaliased (`&unique T`);
-    // We can't have it all in stable Rust (on nightly Rust we could add the
+    // we can't have it all in stable Rust (on nightly Rust we could add the
     // non-null property through a braced struct newtype around `*const T`).
-    r#unsafe: *const T,
+    r#unsafe: *const HackMD<PD<&'slot ()>, T>,
 
-    #[doc(hidden)] /** Not part of the public API */ pub
-    _unsafe_to_construct: Unsafe,
-
-    #[doc(hidden)] /** Not part of the public API */ pub
-    _phantom: DetailedPhantomData<'slot, T>,
-
-    #[doc(hidden)] /** Not part of the public API */ pub
-    // Used for the soundness of the macro-construction.
-    // Note: I'd love to be able to squash this into `_phantom`, or at least
-    // some other ZST (_e.g._, `[&'slot (); 0]`), but I haven't found a way to:
-    //   - get lifetime extension to kick in (so no `if false` shenanigans);
-    //   - get the `'slot` to actually match the lifetime of a temporary, rather
-    //     than it becoming unbounded (which, alas, happens inside a `[_; 0]`).
-    _temporary_lt: &'slot (),
+    #[doc(hidden)] /** Not part of the public API. */ pub
+    _phantom: PD<OwnRefSemantics<'slot, T>>,
 }
 
 /// What is a `&'slot own T`, after all?
-#[allow(type_alias_bounds)]
-type DetailedPhantomData<'slot, T : ?Sized> = PD<(
+type OwnRefSemantics<'slot, T> = (
     //  1. it is a `&'slot mut` reference to its backing memory.
     &'slot mut [MU<u8>],
     //  2. it is an owned `T` instance.
     T,
-    // Note: `2.` is only needed with a `#[may_dangle]` drop impl
+    // Note: `2.` is only really needed with a `#[may_dangle]` drop impl
     // but we keep it nonetheless for the sake of documentation (to explain why
     // covariance in `T`, much like with `T` or `Box<T>`, is fine).
-)>;
+);
 
 impl<'slot, T : ?Sized> Drop for OwnRef<'slot, T> {
     fn drop(&mut self)
     {
+        let p: *mut T = self.r#unsafe as _;
         unsafe {
-            self.r#unsafe.cast_mut().drop_in_place()
+            <*mut T>::drop_in_place(p as _)
         }
     }
 }
 
 #[macro_export]
 macro_rules! own_ref {( $value:expr $(,)? ) => ({
+    let value = $value;
     #[allow(warnings, clippy::all, clippy::pedantic)] {
         OwnRef {
-            _unsafe_to_construct: unsafe { $crate::ඞ::Unsafe::new() },
-            _phantom: $crate::ඞ::nudge_type_inference([&$value; 0]),
-            r#unsafe: &mut *$crate::ඞ::MD::new($value) as *mut _ as *const _,
-            _temporary_lt: &::core::mem::drop(()),
+            _unsafe_to_construct: unsafe { $crate::ඞ::Unsafe::token() },
+            _phantom: $crate::ඞ::PD,
+            r#unsafe: (&mut
+                                    $crate::ඞ::HackMD::<&(), _> {
+                                        value:
+                        $crate::ඞ::MD::new(value),
+                                        _temporary: &::core::mem::drop(()),
+                                    })
+                                    // `DerefMut` coercion
+                                    as &mut $crate::ඞ::HackMD::<$crate::ඞ::PD<&()>, _>
+                    // go through `*mut` to avoid through-`&` provenance loss.
+                    // (I'd have loved to use `addr_of_mut!` instead, but it
+                    // purposedly rejects lifetime extension).
+                    as *mut _
+            ,
         }
     }
 })}
-
-#[inline]
-pub
-fn nudge_type_inference<'unbounded, T : ?Sized>(
-    _: [&'_ T; 0],
-) -> DetailedPhantomData<'unbounded, T>
-{
-    PD
-}
 
 impl<'slot, T : ?Sized> OwnRef<'slot, T> {
     /// ```rust
@@ -96,35 +103,37 @@ impl<'slot, T : ?Sized> OwnRef<'slot, T> {
         T : Sized,
     {
         let yield_ = scope;
-        yield_(own_ref!(value))
+        yield_({ Slot::VACANT }.holding(value))
     }
 
     /// # Safety
     ///
-    /// See [`ManuallyDrop::take()`][MD::take].
+    /// See [`ManuallyDrop::take()`].
     pub
     unsafe
     fn from_raw(
-        r: &'slot mut MD<T>,
+        r: &'slot mut ManuallyDrop<T>,
     ) -> OwnRef<'slot, T>
     {
         Self {
-            r#unsafe: (&mut **r) as *mut _,
-            _unsafe_to_construct: Unsafe::new(),
+            _unsafe_to_construct: unsafe {
+                // Safety: delegated to the caller
+                Unsafe::token()
+            },
+            r#unsafe: ::core::ptr::addr_of_mut!(*HackMD::wrap_mut(r)),
             _phantom: <_>::default(),
-            _temporary_lt: &(),
         }
     }
 
     pub
     fn into_raw(
         self: OwnRef<'slot, T>,
-    ) -> &'slot mut MD<T>
+    ) -> &'slot mut ManuallyDrop<T>
     {
-        #![allow(clippy::transmute_ptr_to_ref)] // `?Sized`.
-        unsafe {
-            ::core::mem::transmute::<*const T, _>(MD::new(self).r#unsafe)
-        }
+        let p: *mut _ = MD::new(self).r#unsafe.cast_mut();
+        HackMD::unwrap_mut(unsafe {
+            &mut *p
+        })
     }
 }
 
@@ -136,20 +145,20 @@ macro_rules! unsize {( $e:expr $(,)? ) => (
 )}
 
 impl<'slot, T : ?Sized> ::core::ops::DerefMut for OwnRef<'slot, T> {
-    fn deref_mut(&mut self)
-      -> &mut T
+    fn deref_mut(self: &'_ mut OwnRef<'slot, T>)
+      -> &'_ mut T
     {
         impl<'slot, T : ?Sized> ::core::ops::Deref for OwnRef<'slot, T> {
             type Target = T;
 
-            fn deref(&self)
-              -> &T
+            fn deref(self: &'_ OwnRef<'slot, T>)
+              -> &'_ T
             {
-                unsafe { &*self.r#unsafe }
+                &unsafe { &*self.r#unsafe }.value
             }
         }
 
-        unsafe { &mut *self.r#unsafe.cast_mut() }
+        HackMD::unwrap_mut(unsafe { &mut *self.r#unsafe.cast_mut() })
     }
 }
 
@@ -157,24 +166,94 @@ mod autotraits {
     use super::*;
 
     unsafe
-    impl<T : ?Sized> Send for OwnRef<'_, T>
+    impl<'slot, T : ?Sized> Send for OwnRef<'_, T>
     where
-        T : Send,
+        OwnRefSemantics<'slot, T> : Send,
     {}
 
     unsafe
-    impl<T : ?Sized> Sync for OwnRef<'_, T>
+    impl<'slot, T : ?Sized> Sync for OwnRef<'_, T>
     where
-        T : Sync,
+        OwnRefSemantics<'slot, T> : Sync,
     {}
 
-    impl<T : ?Sized> ::core::panic::UnwindSafe for OwnRef<'_, T>
+    impl<'slot, T : ?Sized> ::core::panic::UnwindSafe for OwnRef<'_, T>
     where
-        T : ::core::panic::UnwindSafe,
+        OwnRefSemantics<'slot, T> : ::core::panic::UnwindSafe,
     {}
 
+    // For this impl, the indirection is important, so we don't use
+    // `OwnRefSemantics` (the true semantics are those with a `Box<T>`, but
+    // we want to be `no_std`-friendly).
     impl<'slot, T : ?Sized> Unpin for OwnRef<'slot, T>
     where
         &'slot mut T : Unpin,
     {}
+}
+
+
+/// Helper type that allows keeping the type temporary-lifetime-infected while
+/// avoiding encumbering the non-macro case with useless data.
+///
+/// The key observation/idea is that `HackMD<PD<_>, T>` and `MD<T>`
+/// (and `T`) have the same layout (while still being `_`-lifetime-infected),
+/// but thanks to a `Deref` hack (which can occur without hindering lifetime
+/// extension), we can also convert
+/// a `HackMD<&'temporary (), T>` into a `HackMD<PD<&'temporary ()>, T>`, which
+/// gives us room to squeeze a `&drop(())` temporary into the whole expression.
+///
+/// Any resemblance with an online-editing Markdown website is accidental.
+#[repr(C)]
+pub
+struct HackMD<Lifetime, T : ?Sized> {
+    pub _temporary: Lifetime,
+    pub value: MD<T>,
+}
+
+impl<__ : ?Sized, T : ?Sized> HackMD<PD<__>, T> {
+    fn wrap_mut<'r>(
+        r: &'r mut MD<T>,
+    ) -> &'r mut HackMD<PD<__>, T>
+    {
+        unsafe {
+            // Safety: same layout, thanks to `repr(C)`.
+            ::core::mem::transmute(r)
+        }
+    }
+
+    fn unwrap_mut<'r>(
+        r: &'r mut HackMD<PD<__>, T>,
+    ) -> &'r mut MD<T>
+    {
+        &mut r.value
+    }
+}
+
+impl<'temporary, T : ?Sized>
+    ::core::ops::DerefMut
+for
+    HackMD<&'temporary (), T>
+{
+    fn deref_mut(
+        self: &'_ mut HackMD<&'temporary (), T>,
+    ) -> &'_ mut HackMD<PD<&'temporary ()>, T>
+    {
+        impl<'temporary, T : ?Sized>
+            ::core::ops::Deref
+        for
+            HackMD<&'temporary (), T>
+        {
+            type Target = HackMD<PD<&'temporary ()>, T>;
+
+            fn deref(
+                self: &'_ HackMD<&'temporary (), T>,
+            ) -> &'_ HackMD<PD<&'temporary ()>, T>
+            {
+                // Should never need to be called.
+                unimplemented!()
+            }
+        }
+
+        HackMD::wrap_mut(&mut self.value)
+    }
 }

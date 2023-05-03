@@ -1,4 +1,5 @@
 #![feature(coerce_unsized)]
+#![warn(unsafe_op_in_unsafe_fn)]
 
 #[macro_use]
 extern crate extension_traits;
@@ -34,7 +35,9 @@ mod ඞ {
             },
         },
         crate::{
-            own::nudge_type_inference,
+            own::{
+                HackMD,
+            },
             token::Unsafe,
         },
     };
