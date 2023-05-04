@@ -117,7 +117,7 @@ impl<T> ManualOption<T> {
             this.is_some = true;
             // We need this cast to a raw pointer because otherwise
             // `addr_of_mut!` shrinks provenance…
-            // Biggest footgun of all of Rust, imho.
+            // Biggest footgun in Rust, imho.
             let this: *mut Self = this;
             let own_ref = OwnRef::from_raw(
                 // Make sure to keep provenance over all of `*self`.
@@ -128,7 +128,7 @@ impl<T> ManualOption<T> {
             //   - The `Deref{,Mut}` impls are not silly.
             //   - The value is to be dropped before its backing allocation
             //     (_i.e._, `*self`), is reclaimed/reüsed/rewritten, since, by
-            //     the time `ManualOption::drop` runs, either:
+            //     the time `ManualOption::drop` runs:
             //       - either `OwnRef` has properly dropped the value (and told
             //          us so by setting `is_some` to `false`);
             //       - or `is_some` is `true`, and we do drop it.
