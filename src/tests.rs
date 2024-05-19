@@ -26,8 +26,13 @@ fn main()
         let _o: OwnRef<'_, dyn FnOnce()> = own_ref!(|| ());
     }
     {
-        let (storage, storage2) = &mut slots();
-        if false { storage2.holding(()); }
+        let (storage, storage2, storage3) = &mut slots();
+        if false {
+            storage2.holding(());
+        }
+        if true {
+            storage3.holding(42);
+        }
         let _o: OwnRef<'_, dyn FnOnce()> = unsize!(storage.holding(|| ()));
     }
     {

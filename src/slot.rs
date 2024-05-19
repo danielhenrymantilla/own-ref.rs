@@ -9,12 +9,13 @@ fn slot<T>()
 }
 
 pub
+const
 fn slots<Slots>()
   -> Slots
 where
     Slots : TupleSlots,
 {
-    Slots::tuple_slots()
+    Slots::TUPLE_SLOTS
 }
 
 pub
@@ -50,20 +51,32 @@ impl<T> MU<T> {
 
 pub
 trait TupleSlots {
-    fn tuple_slots()
-      -> Self
-    ;
+    const TUPLE_SLOTS: Self;
 }
 
-impl TupleSlots for () {
-    fn tuple_slots()
-    {}
+impls! {
+    _11 _10 _9 _8 _7 _6
+    _5 _4 _3 _2 _1 _0
 }
+// where
+macro_rules! impls {
+    (
+        $(
+            $N:ident $($I:ident)*
+        )?
+    ) => (
+        $(
+            impls! { $($I)* }
+        )?
 
-impl<T, U> TupleSlots for (Slot<T>, Slot<U>) {
-    fn tuple_slots()
-      -> Self
-    {
-        (Slot::VACANT, Slot::VACANT)
-    }
-}
+        impl<$( $N $(, $I)* )?> TupleSlots
+            for (
+                $( Slot<$N>, $(Slot<$I>),* )?
+            )
+        {
+            const TUPLE_SLOTS: Self = (
+                $( Slot::<$N>::VACANT, $(Slot::<$I>::VACANT),* )?
+            );
+        }
+    )
+} use impls;

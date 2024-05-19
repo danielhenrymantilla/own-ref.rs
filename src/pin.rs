@@ -17,6 +17,7 @@ struct ManualOption<T> {
     pub(in crate)
     value: MU<T>,
 
+    /// default `!Unpin` when the `impl<T: Unpin> Unpin` above does not apply.
     _pin_sensitive: PhantomPinned,
 }
 
