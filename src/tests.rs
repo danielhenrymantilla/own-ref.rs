@@ -24,6 +24,13 @@ fn main()
     }
     {
         let _o: OwnRef<'_, dyn FnOnce()> = own_ref!(|| ());
+        // Alas, not much we can do with an `OwnRef<…dyn FnOnce()>`.
+    }
+    {
+        let s = String::from("not copy");
+        let o: OwnRef<'_, dyn Send + Unpin + crate::FnOwn<(), Ret = String>> = own_ref!(|| s);
+        let s: String = o.call_ownref_0();
+        assert_eq!(s, "not copy");
     }
     {
         let (storage, storage2, storage3) = &mut slots();

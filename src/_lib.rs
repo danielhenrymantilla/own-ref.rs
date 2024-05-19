@@ -21,6 +21,11 @@ use self::{
     prelude::*,
 };
 
+mod arities;
+
+pub use fn_own::FnOwn;
+mod fn_own;
+
 mod own;
 
 pub

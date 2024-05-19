@@ -54,20 +54,13 @@ trait TupleSlots {
     const TUPLE_SLOTS: Self;
 }
 
-impls! {
-    _11 _10 _9 _8 _7 _6
-    _5 _4 _3 _2 _1 _0
-}
+crate::arities::feed_all!(=> impls!);
 // where
 macro_rules! impls {
     (
-        $(
-            $N:ident $($I:ident)*
-        )?
+        $( $N:ident $($I:ident)* )?
     ) => (
-        $(
-            impls! { $($I)* }
-        )?
+        $( impls! { $($I)* } )?
 
         impl<$( $N $(, $I)* )?> TupleSlots
             for (

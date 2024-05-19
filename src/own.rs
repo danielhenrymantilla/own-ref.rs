@@ -4,6 +4,8 @@ use crate::pin::DropFlags;
 use super::*;
 use ::core::mem::ManuallyDrop;
 
+mod impls;
+
 pub
 struct OwnRef<
     'slot,
@@ -130,7 +132,7 @@ macro_rules! own_ref {( $value:expr $(,)? ) => ({
 
                 // go through `*mut` to avoid through-`&` provenance loss.
                 // (I'd have loved to use `addr_of_mut!` instead, but it
-                // purposedly rejects lifetime extension).
+                // purposely rejects lifetime extension).
                 as *mut _
             ,
             _semantics: $crate::ඞ::PD,
@@ -275,7 +277,7 @@ mod autotraits {
     {}
 
     // For this impl, the indirection is important, so we don't use
-    // `OwnRefSemantics` (the true semantics are those with a `Box<T>`, but
+    // `OwnRefSemantics` (the true semantics are those of a `Box<T>`, but
     // we want to be `no_std`-friendly).
     impl<'slot, T : ?Sized, D> Unpin for OwnRef<'slot, T, D>
     where

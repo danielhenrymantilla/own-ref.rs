@@ -92,7 +92,7 @@ impl<T> ManualOption<T> {
 
     /// Same as [`Slot::holding()`], but for it returning a `Pin`ned `value`.
     ///
-    /// Uses runtime drop flags to detect improper memory leakage.
+    /// Uses runtime drop flags to guard against improper memory leakage, lest unsoundness ensue.
     ///
     /// # Example
     ///
@@ -143,7 +143,7 @@ impl<T> ManualOption<T> {
 impl<'slot, T> OwnRef<'slot, T, DropFlags::Yes> {
     /// Same as [`OwnRef::with()`], but for the `value` being `Pin`ned.
     ///
-    /// Uses runtime drop flags to detect improper memory leakage.
+    /// Uses runtime drop flags to guard against improper memory leakage, lest unsoundness ensue.
     pub
     fn with_pinned<R>(
         value: T,

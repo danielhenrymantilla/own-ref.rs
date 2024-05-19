@@ -10,6 +10,7 @@ path = "src/_lib.rs"
 
 [dependencies]
 extension-traits.version = "1.0.1"
+paste.version = "1.0.15"
 
 [dev-dependencies]
 macro_rules_attribute.version = "0.1.3"
