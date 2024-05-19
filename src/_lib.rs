@@ -23,9 +23,6 @@ use self::{
 
 mod arities;
 
-pub use fn_own::FnOwn;
-mod fn_own;
-
 mod own;
 
 pub
@@ -36,6 +33,9 @@ mod slot;
 mod token;
 
 pub
+mod traits;
+
+pub
 mod prelude {
     pub use {
         ::core::{
@@ -43,7 +43,9 @@ mod prelude {
             ops::Not as _,
             pin::{pin, Pin},
         },
-        crate::*,
+        crate::{*,
+            traits::{FnOwn},
+        },
     };
 }
 
