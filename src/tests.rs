@@ -39,6 +39,16 @@ fn main()
     }
 }
 
+#[test]
+fn branches() {
+    let it: OwnRef<'_, [String]> = if true {
+        own_ref!([String::from("one")])
+    } else {
+        own_ref!([String::from("two"), String::from("three")])
+    };
+    drop(it);
+}
+
 #[cfg(doctest)]
 #[apply(compile_fail!)]
 fn moves_value_in()

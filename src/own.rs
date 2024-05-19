@@ -1,3 +1,4 @@
+#[cfg(doc)]
 use crate::pin::DropFlags;
 
 use super::*;

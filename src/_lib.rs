@@ -1,4 +1,4 @@
-#![feature(coerce_unsized)]
+// #![feature(coerce_unsized)]
 #![warn(unsafe_op_in_unsafe_fn)]
 
 #[macro_use]
