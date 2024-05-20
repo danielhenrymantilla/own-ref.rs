@@ -15,7 +15,7 @@ struct OwnRef<
     // Since `OwnRef` fields are technically exposed (for the macro to work)
     // we make it "more sound" by requiring an `unsafe`ty token:
     #[doc(hidden)] /** Not part of the public API. */ pub
-    _unsafe_to_construct: Unsafe,
+    _ඞunsafe_to_construct: Unsafe,
     // Alas, this technically isn't 100% sound if we wanted to be pedantic,
     // since users are technically capable of mutating the following field once
     // they have their hands on a legitimate instance.
@@ -49,25 +49,25 @@ struct OwnRef<
     r#unsafe: *const HackMD<PD<&'slot ()>, T>,
 
     #[doc(hidden)] /** Not part of the public API. */ pub
-    _semantics: PD<OwnRefSemantics<'slot, T>>,
+    _ඞsemantics: PD<OwnRefSemantics<'slot, T>>,
 
     // Regarding `DropFlags`, we just want an *implicit* `: 'static`.
     // And now that we are at it, we may as well introduce an implicit
     // `T : 'slot` as well.
     #[doc(hidden)] /** Not part of the public API. */ pub
-    _drop_flags_marker: PD<fn() -> (&'static DropFlags, &'slot T)>,
+    _ඞdrop_flags_marker: PD<fn() -> (&'static DropFlags, &'slot T)>,
 
     // A note about covariance: an `&'_ own T`, that is, an `OwnRef<'_, T>`,
-    // i.e., a `OwnRef<'_, T, DropFlags::No>`, conceptually, can perfectly well
-    // be covariant (despite the `DerefMut`), much like a `Box` is: ownership is
-    // strong enough of a restriction to avoid the unsoundness that stems from
-    // borrowed/externally-witnessable covariant mutable access (_e.g._, that of
-    // `&mut T`, or `&Cell<T>`).
+    // i.e., an `OwnRef<'_, T, DropFlags::No>`, can, conceptually, be perfectly
+    // well covariant (despite the `DerefMut`), much like a `Box` does:
+    // ownership is strong enough of a restriction to avoid the unsoundness that
+    // stems from borrowed/externally-witnessable covariant mutable access
+    // (_e.g._, that of `&mut T`, or `&Cell<T>`).
     //
     // However, we do have a problem in the `DropFlags::Yes` case (the design
-    // used to become `Pin`-constructible). Indeed, the presence of these drop
-    // flags is making our `OwnRef<'_, T, DropFlags::Yes>` act more like a
-    // `&mut Option<T>` than like a `&mut ManuallyDrop<T>`.
+    // which has been used to become `Pin`-constructible). Indeed, the presence
+    // of these drop flags is making our `OwnRef<'_, T, DropFlags::Yes>` act
+    // more like a `&mut Option<T>` than like a `&mut ManuallyDrop<T>`.
     //
     // And this is a problem, since an `Option<T>` does very much have `T`-using
     // drop glue (the whole point of the `DropFlags::Yes` design!).
@@ -88,7 +88,7 @@ struct OwnRef<
     // generic parameter (here, `T`). The intuitive `D::Gat<T>` type is
     // currently unconditionally invariant...
     #[doc(hidden)] /** Not part of the public API. */ pub
-    _non_covariant_in_case_of_drop_flags: PD<fn(&T)>,
+    _ඞnon_covariant_in_case_of_drop_flags: PD<fn(&T)>,
 }
 
 /// What is a `&'slot own T`, after all?
@@ -157,7 +157,7 @@ macro_rules! own_ref {( $value:expr $(,)? ) => ({
         // to unify with `OwnRef`s constructed otherwise (_e.g._, from a `Slot`
         // or the `with()` scoped constructor).
         OwnRef::<'_, _, $crate::pin::DropFlags::No> {
-            _unsafe_to_construct: unsafe { $crate::ඞ::Unsafe::token() },
+            _ඞunsafe_to_construct: unsafe { $crate::ඞ::Unsafe::token() },
             r#unsafe:
                 // main temporary
                 (&mut $crate::ඞ::HackMD::<&(), _> {
@@ -174,9 +174,9 @@ macro_rules! own_ref {( $value:expr $(,)? ) => ({
                 // purposely rejects lifetime extension).
                 as *mut _
             ,
-            _semantics: $crate::ඞ::PD,
-            _drop_flags_marker: $crate::ඞ::PD,
-            _non_covariant_in_case_of_drop_flags: $crate::ඞ::PD,
+            _ඞsemantics: $crate::ඞ::PD,
+            _ඞdrop_flags_marker: $crate::ඞ::PD,
+            _ඞnon_covariant_in_case_of_drop_flags: $crate::ඞ::PD,
         }
     }
 })}
@@ -231,7 +231,7 @@ impl<'slot, T : ?Sized, D> OwnRef<'slot, T, D> {
     ) -> OwnRef<'slot, T, D>
     {
         Self {
-            _unsafe_to_construct: unsafe {
+            _ඞunsafe_to_construct: unsafe {
                 // Safety: delegated to the caller
                 Unsafe::token()
             },
@@ -241,9 +241,9 @@ impl<'slot, T : ?Sized, D> OwnRef<'slot, T, D> {
                 // accidentally affecting provenance)
                 ::core::mem::transmute(ptr)
             },
-            _semantics: <_>::default(),
-            _drop_flags_marker: <_>::default(),
-            _non_covariant_in_case_of_drop_flags: <_>::default(),
+            _ඞsemantics: <_>::default(),
+            _ඞdrop_flags_marker: <_>::default(),
+            _ඞnon_covariant_in_case_of_drop_flags: <_>::default(),
         }
     }
 

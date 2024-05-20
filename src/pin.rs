@@ -123,7 +123,7 @@ impl<T> ManualOption<T> {
             // Biggest footgun in Rust, imho.
             let this: *mut Self = this;
             // `OwnRef<'_, T, DropFlags::Yes>`' drop glue relies on this.
-            {
+            #[cfg(feature = "offset_of")] {
                 impl<T> ManualOption<T> {
                     const FIELD_OFFSET_ASSERTION: () = assert!(
                         (
