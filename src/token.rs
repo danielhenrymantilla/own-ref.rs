@@ -24,6 +24,7 @@ impl Unsafe {
     ///     </details>
     ///
     ///     </details>
+    #[inline]
     pub
     unsafe
     fn token()

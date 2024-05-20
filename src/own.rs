@@ -50,15 +50,19 @@ struct OwnRef<
     _semantics: PD<OwnRefSemantics<'slot, T>>,
 
     // Regarding `DropFlags`, we just want an *implicit* `: 'static`.
+    // And now that we are at it, we may as well introduce an implicit
+    // `T : 'slot` as well.
     #[doc(hidden)] /** Not part of the public API. */ pub
-    _drop_flags_marker: PD<&'static DropFlags>,
+    _drop_flags_marker: PD<fn() -> (&'static DropFlags, &'slot T)>,
 }
 
 /// What is a `&'slot own T`, after all?
 type OwnRefSemantics<'slot, T> = (
     //  1. it is a `&'slot mut` reference to its backing memory.
     &'slot mut [MU<u8>],
-    //  2. it is an owned `T` instance.
+    //  2. it is an owned `T` instance (granted, behind indirection, so we'll
+    // need to adjust our impl of `Unpin` (the only indirection-sensitive trait)
+    // accordingly).
     T,
     // Note: `2.` is only really needed with a `#[may_dangle]` drop impl
     // but we keep it nonetheless for the sake of documentation (to explain why
@@ -182,6 +186,7 @@ impl<'slot, T : ?Sized, D> OwnRef<'slot, T, D> {
     ///
     ///        - (currently that field is not exposed at all publicly because it
     ///          is a very finicky requirement).
+    #[inline(always)]
     pub
     unsafe
     fn from_raw(
@@ -195,8 +200,9 @@ impl<'slot, T : ?Sized, D> OwnRef<'slot, T, D> {
                 Unsafe::token()
             },
             r#unsafe: unsafe {
-                // Safety: same layout.
-                // (this is safer than using casts since it keeps provenance)
+                // Safety: same layout (pointer to `?Sized`).
+                // (this is less error-prone than using casts since it avoids
+                // accidentally affecting provenance)
                 ::core::mem::transmute(ptr)
             },
             _semantics: <_>::default(),
@@ -204,6 +210,7 @@ impl<'slot, T : ?Sized, D> OwnRef<'slot, T, D> {
         }
     }
 
+    #[inline(always)]
     pub
     fn into_raw(
         self: OwnRef<'slot, T, D>,
@@ -211,7 +218,7 @@ impl<'slot, T : ?Sized, D> OwnRef<'slot, T, D> {
     {
         (
             unsafe {
-                // Safety: same layout
+                // Safety: same layout (pointer to `?Sized`)
                 ::core::mem::transmute(self)
             },
             [],
@@ -224,9 +231,9 @@ macro_rules! unsize {( $e:expr $(,)? ) => (
     // Safety: `from_raw()` and `into_raw()` are inverses of one another,
     // so semantically this is fine.
     // The point of doing this is that it creates a `ptr` place where an unsized
-    // coercion can take place to widen it.
-    // `from_raw` (and the rest of the `OwnRef` machinery) is resilient to
-    // having wide pointers around.
+    // coercion can occur to widen it.
+    // (`from_raw` (and the rest of the `OwnRef` machinery) is resilient to
+    // having wide pointers around.)
     match $crate::OwnRef::into_raw($e) { (ptr, lt) => unsafe {
         $crate::OwnRef::from_raw(ptr, lt)
     }}
@@ -236,6 +243,9 @@ impl<'slot, T : ?Sized, D> ::core::ops::DerefMut for OwnRef<'slot, T, D> {
     fn deref_mut(self: &'_ mut OwnRef<'slot, T, D>)
       -> &'_ mut T
     {
+        // We needn't worry about provenance shrinkage since these are
+        // short-lived (`'_`) {nested/re}borrowing operations which only care
+        // about accessing the underlying `T`.
         impl<'slot, T : ?Sized, D> ::core::ops::Deref for OwnRef<'slot, T, D> {
             type Target = T;
 
@@ -274,6 +284,11 @@ mod autotraits {
     impl<'slot, T : ?Sized, D> ::core::panic::UnwindSafe for OwnRef<'_, T, D>
     where
         OwnRefSemantics<'slot, T> : ::core::panic::UnwindSafe,
+    {}
+
+    impl<'slot, T : ?Sized, D> ::core::panic::RefUnwindSafe for OwnRef<'_, T, D>
+    where
+        OwnRefSemantics<'slot, T> : ::core::panic::RefUnwindSafe,
     {}
 
     // For this impl, the indirection is important, so we don't use
