@@ -8,6 +8,9 @@ extern crate extension_traits;
 #[macro_use]
 extern crate macro_rules_attribute;
 
+#[cfg(test)]
+extern crate self as own_ref;
+
 #[macro_use]
 mod utils;
 

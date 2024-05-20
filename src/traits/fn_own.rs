@@ -74,7 +74,7 @@ trait ඞFnOwnRet<Args> {
 #[doc(hidden)] /** Not part of the public API! */ pub
 trait ඞFnOwnUnchecked<Args> : ඞFnOwnRet<Args> {
     // SAFETY(pub): NONE!
-    // SAFETY(in crate): make sure that the pointee is `ManuallyDrop`-wrapped.
+    // SAFETY(in crate): make sure that the pointee has been `ManuallyDrop`-wrapped beforehand.
     #[doc(hidden)] /** Not part of the public API! */
     unsafe
     fn ඞdyn_call_ownref(&mut self, _: Args)
@@ -83,8 +83,6 @@ trait ඞFnOwnUnchecked<Args> : ඞFnOwnRet<Args> {
 }
 
 impl<F : FnOwn<Args>, Args> ඞFnOwnUnchecked<Args> for F {
-    // SAFETY(pub): NONE!
-    // SAFETY(in crate): make sure that the pointee has been `ManuallyDrop`-wrapped beforehand.
     #[doc(hidden)] /** Not part of the public API! */
     unsafe
     fn ඞdyn_call_ownref(&mut self, args: Args)

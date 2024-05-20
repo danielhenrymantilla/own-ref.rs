@@ -40,7 +40,7 @@ fn main()
         if true {
             storage3.holding(42);
         }
-        let _o: OwnRef<'_, dyn FnOnce()> = unsize!(storage.holding(|| ()));
+        let _o: OwnRef<'_, dyn FnOnce()> = ::own_ref::unsize!(storage.holding(|| ()));
     }
     {
         let local: &str = &String::from("…");
