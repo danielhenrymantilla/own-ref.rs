@@ -61,6 +61,25 @@ fn branches() {
     drop(it);
 }
 
+#[test]
+fn hrtb() {
+    let not_copy = String::new();
+    let f = |_: &str| {
+        drop(not_copy);
+    };
+    let f = own_ref!(f);
+    if true {
+        let f: OwnRef<'_, dyn for<'any> FnOwn<(&'any str, ), Ret = ()>> = unsize!(f);
+        {
+            let local = String::from("local");
+            FnOwn::call_ownref_1(f, &local[..]);
+        }
+    } else {
+        let local = String::from("local");
+        FnOwn::call_ownref_1(f, &local[..]);
+    }
+}
+
 #[cfg(doctest)]
 #[apply(compile_fail!)]
 fn moves_value_in()

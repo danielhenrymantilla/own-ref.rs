@@ -25,11 +25,9 @@ impl<T> Drop for ManualOption<T> {
     #[inline]
     fn drop(&mut self)
     {
-        if ::core::mem::needs_drop::<T>() {
-            if self.is_some {
-                unsafe {
-                    self.value.as_mut_ptr().drop_in_place()
-                }
+        if ::core::mem::needs_drop::<T>() && self.is_some {
+            unsafe {
+                self.value.as_mut_ptr().drop_in_place()
             }
         }
     }

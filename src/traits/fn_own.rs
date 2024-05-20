@@ -47,13 +47,11 @@ trait FnOwn<Args> : ඞFnOwnUnchecked<Args> {
 
 // where
 macro_rules! call_ownref_N {(
-    $(
-        $N:ident $($I:ident)*
-    )?
+    $( $N:ident $($I:ident)* )?
 ) => (
-    $( call_ownref_N! { $($I)* } )?
-    ::paste::paste! {
-        $(
+    $(
+        call_ownref_N! { $($I)* }
+        ::paste::paste! {
             fn [< call_ownref$N >]<$($I),*>(
                 self,
                 $($I: $I),*
@@ -64,8 +62,8 @@ macro_rules! call_ownref_N {(
             {
                 self.call_ownref(Is::cast(($($I, )*)))
             }
-        )?
-    }
+        }
+    )?
 )} use call_ownref_N;
 
 #[doc(hidden)] /** Not part of the public API! */ pub

@@ -37,14 +37,20 @@ mod traits;
 
 pub
 mod prelude {
+    #[doc(no_inline)]
     pub use {
         ::core::{
             future::Future,
             ops::Not as _,
             pin::{pin, Pin},
         },
-        crate::{*,
-            traits::{FnOwn},
+        crate::{
+            OwnRef,
+            own_ref,
+            pinned_slot,
+            slot::slot,
+            slots,
+            traits::FnOwn,
         },
     };
 }
@@ -76,7 +82,7 @@ mod ඞ {
     };
 }
 
-#[cfg(FALSE)]
+#[cfg(any())]
 impl<'frame, T : ?Sized, U : ?Sized>
     ::core::ops::CoerceUnsized<OwnRef<'frame, U>>
 for
