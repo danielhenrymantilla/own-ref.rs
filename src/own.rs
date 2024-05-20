@@ -140,6 +140,94 @@ impl<'slot, T : ?Sized, DropFlags> Drop for OwnRef<'slot, T, DropFlags> {
     }
 }
 
+/// Main/most useful [`OwnRef`] constructor.
+///
+/// It works very similarly to [`pin!`], but producing [`OwnRef`]s instead.
+///
+/// ## Examples
+///
+/// That is, it is very useful when working with small-scoped [`OwnRef`]s,
+///
+///   - be it when inlined within a function call, as with:
+///
+///     ```rust
+///     //! Who needs `#![feature(unsized_fn_params)]`?
+///
+///     use ::own_ref::prelude::*;
+///
+///     fn demo(f: OwnRef<'_, dyn FnOwn<(), Ret = ()>>) {
+///         f.call_ownref_0()
+///     }
+///
+///     let captured = String::from("not copy");
+///     demo(own_ref!(|| drop(captured))); // 👈 inlined usage!
+///     ```
+///
+///   - or in small-ish scopes (using Rust ≥ 1.79.0 is then recommended):
+///
+///     ```rust
+///     use ::own_ref::prelude::*;
+///     # let some_condition = true;
+///     # let some_mutex = ::std::sync::Mutex::new(());
+///     let cleanup: OwnRef<'_, dyn FnOwn<(), Ret = ()>> = if some_condition {
+///         let lock_guard = some_mutex.lock().unwrap();
+///         // ...
+///         own_ref!(move || drop(lock_guard))
+///     } else {
+///         own_ref!(|| ())
+///     };
+///     // stuff... (in the same scope)
+///     // ...
+///     // Eventually:
+///     cleanup.call_ownref_0()
+///     ```
+///
+/// Notice how, in both of these examples, we have taken advantage of the
+/// built-in [unsizing][unsize!] capabilities of [`own_ref!`] (in this instance,
+/// to <code>dyn [FnOwn]\<…\></code>).
+///
+/// ## Misusage
+///
+/// Be aware, however, that [`own_ref!`] operates in a manner very similar to
+/// that of [`pin!`], which involves [temporary lifetime extension shenanigans](
+/// https://doc.rust-lang.org/1.58.1/reference/destructors.html#temporary-lifetime-extension)
+/// (_c.f._ the [`pin!`] docs for potentially more info about it).
+///
+/// The following, for instance, fails to compile:
+///
+/// ```rust ,compile_fail
+/// use ::own_ref::prelude::*;
+///
+/// let o = Some(42).map(|x| own_ref!(x));
+/// dbg!(o);
+/// ```
+///
+/// with:
+///
+/// ```rust ,ignore
+/// # r#"
+/// error[E0515]: cannot return value referencing temporary value
+///  --> src/own.rs:200:26
+///   |
+/// 8 | let o = Some(42).map(|x| own_ref!(x));
+///   |                          ^^^^^^^^^^^
+///   |                          |
+///   |                          returns a value referencing data owned by the current function
+///   |                          temporary value created here
+///   |
+///   = note: this error originates in the macro `own_ref`
+/// # "#
+/// ```
+///
+/// ## Alternatives
+///
+/// If you run into this problem, consider using the alternative constructors:
+///
+///   - either [`slot().holding()`][crate::slot()];
+///   - or the [`OwnRef::with()`] scoped API.
+///
+/// (these, however, do not feature built-in unsizing, and would require
+/// explicit calls to [`unsize!`].)
 #[macro_export]
 macro_rules! own_ref {( $value:expr $(,)? ) => ({
     let value = $value;
@@ -180,6 +268,52 @@ macro_rules! own_ref {( $value:expr $(,)? ) => ({
         }
     }
 })}
+
+impl<'slot, T> OwnRef<'slot, T> {
+    /// Low-level [`OwnRef`] construction.
+    ///
+    /// An <code>[OwnRef]\<\'slot, T\></code>, at least, one with
+    /// [`No`][crate::pin::DropFlags::No] [`DropFlags`][crate::pin::DropFlags]
+    /// attached, is "merely" a "glorified"
+    /// <code>&\'slot mut [ManuallyDrop]\<T\></code>, with an automatic
+    /// [`ManuallyDrop::drop()`] invocation engrained into its [`Drop`] glue,
+    /// and thus, _raison d'être_.
+    ///
+    ///   - From there, it grows to become way more than that, thanks to its
+    ///     [`unsizing`][crate::unsize!] capabilities, which in turn subsume
+    ///     whole language features such as `#![feature(unsized_fn_params)]`, or
+    ///     even `#![feature(unsized_rvalues)]` altogether.
+    ///
+    /// It thus makes sense for such a basic and quintessential construction to
+    /// be available.
+    ///
+    /// Do note that the [`Pin`-related APIs][mod@crate::pin] and types, such as
+    /// <code>[OwnRef]\<\'\_, T, [DropFlags::Yes]\></code>, are more involved
+    /// and subtle than this, with (raw) pointer _provenance_ playing an
+    /// important role. Try to steer away of `unsafe`ly constructing that type.
+    ///
+    /// [DropFlags::Yes]: crate::pin::DropFlags::Yes
+    ///
+    /// # Safety
+    ///
+    /// Calling this returns a handle which, ultimately, calls
+    /// [`ManuallyDrop::drop()`] (or [`ManuallyDrop::take()`] if calling
+    /// [`OwnRef::into_inner()`]), so necessarily, the safety requirements and
+    /// _caveats_ of these [`ManuallyDrop`] APIs apply.
+    ///
+    /// Good news is, they also suffice.
+    pub
+    unsafe
+    fn from_ref_unchecked(r: &'slot mut ManuallyDrop<T>)
+      -> OwnRef<'slot, T, crate::pin::DropFlags::No>
+    {
+        unsafe {
+            // Safety: mainly inherited from the caller's narrow contract.
+            // Notice `D = DropFlags::No`
+            Self::from_raw(r, [])
+        }
+    }
+}
 
 impl<'slot, T> OwnRef<'slot, T> {
     /// ```rust
@@ -263,6 +397,38 @@ impl<'slot, T : ?Sized, D> OwnRef<'slot, T, D> {
     }
 }
 
+/// Perform an [`Unsize`][Unsize] coërcion on an owned [`OwnRef`].
+///
+/// If <code>T : [Unsize]\<dyn Trait + …\></code>, and
+/// <code>o: [OwnRef]\<\'\_, T\></code>, then <code>[unsize!]\(o\)</code>
+/// can become an <code>[OwnRef]\<'_, dyn Trait + …\></code>.
+///
+/// But be aware that the [`own_ref!`] macro itself already bundles `unsize!`
+/// semantics (and "redundantly" calling
+/// <code>[unsize!]\([own_ref!]\(…\)\)</code> will actually mess up the
+/// temporary lifetime extension shenanigans of [`own_ref!`] ⚠️
+///
+/// ### Example
+///
+/// ```rust
+/// use ::own_ref::prelude::*;
+///
+/// fn unsize_to_slice(
+///     o: OwnRef<'_, [u8; 42]>,
+/// ) -> OwnRef<'_, [u8]>
+/// {
+///     ::own_ref::unsize!(o)
+/// }
+///
+/// fn unsize_to_trait(
+///     o: OwnRef<'_, [u8; 42]>,
+/// ) -> OwnRef<'_, dyn ::core::fmt::Debug>
+/// {
+///     ::own_ref::unsize!(o)
+/// }
+/// ```
+///
+/// [Unsize]: ::core::marker::Unsize
 #[macro_export]
 macro_rules! unsize {( $e:expr $(,)? ) => (
     // Safety: `from_raw()` and `into_raw()` are inverses of one another,

@@ -16,7 +16,7 @@ mod utils;
 
 pub use self::{
     own::OwnRef,
-    slot::{MaybeUninitExt, Slot, slot, slots},
+    slot::{Slot, slot, slots},
 };
 
 use self::{
@@ -53,7 +53,7 @@ mod prelude {
             pinned_slot,
             slot::slot,
             slots,
-            traits::FnOwn,
+            traits::{FnOwn, MaybeUninitExt as _},
         },
     };
 }

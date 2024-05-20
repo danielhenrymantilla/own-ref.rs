@@ -1,3 +1,165 @@
+//! Module and APIs to combine [`OwnRef`]s with [`Pin`]ning.
+//!
+//! Granted, it is intellectually pleasing and, at first glance, conceptually
+//! making sense (a `pinned_own_ref!(f)` being expected to behave as a more
+//! powerful <code>[pin!]\(f\)</code>, with some of the ownership semantics of
+//! <code>[Box::pin]\(f)</code> sprinkled on top of it).
+//!
+//! Alas,
+//!
+//!   - if you have a proper mental model of how <code>[OwnRef]\<\'slot, T\></code>
+//!     is "just" a "glorified" [`Drop`]-imbued wrapper around
+//!     <code>\&\'slot mut [ManuallyDrop]\<T\></code>,
+//!     with no control over the backing storage used for that `T` whatsoever
+//!
+//!       - (especially around how it may be reclaimed and reüsed),
+//!
+//! [ManuallyDrop]: ::core::mem::ManuallyDrop
+//!
+//!   - and if you are also aware of how important the [`Drop` guarantee of
+//!     `Pin`] is,
+//!
+//! [`Drop` guarantee of `Pin`]: https://doc.rust-lang.org/1.78.0/std/pin/index.html#subtle-details-and-the-drop-guarantee
+//!
+//! then it should be quite puzzling, surprising, and/or unexpected for
+//! [`OwnRef`] and [`Pin`] to ever get to be remotely compatible.
+//!
+//! Let's illustrate the issue at which I am hinting:
+//!
+//!  1. ### The [`Drop` guarantee of `Pin`] in a nutshell, illustrated by a silly API
+//!
+//!     ```rust
+//!     use ::std::{
+//!         pin::Pin,
+//!         ptr,
+//!         sync::atomic::{AtomicBool, Ordering},
+//!         thread,
+//!         time::Duration,
+//!     };
+//!
+//!     #[derive(Default)]
+//!     pub struct Example {
+//!         pending: AtomicBool,
+//!         /// `impl !Unpin for Self {}`, sort to speak.
+//!         _pin_sensitive: ::core::marker::PhantomPinned,
+//!     }
+//!
+//!     impl Drop for Example {
+//!         fn drop(&mut self) {
+//!             while self.pending.load(Ordering::Acquire) {
+//!                 // spin-looping is generally AWFUL, performance-wise.
+//!                 // But that question is besides the point / irrelevant
+//!                 // for this example.
+//!             }
+//!         }
+//!     }
+//!
+//!     impl Example {
+//!         fn spawn_task<'not_necessarily_static>(
+//!             self: Pin<&'not_necessarily_static Self>,
+//!         )
+//!         {
+//!             // Check and ensure we're the only one being spawned.
+//!             assert_eq!(false, self.pending
+//!                                   .swap(true, Ordering::AcqRel)
+//!             );
+//!             // Get `&self.pending`, but with the lifetime erased.
+//!             let ptr = UnsafeAssumeSend(ptr::NonNull::from(&self.pending));
+//!             thread::spawn(move || {
+//!                 thread::sleep(Duration::from_secs(10));
+//!                 let at_pending: &AtomicBool = unsafe {
+//!                     // SAFETY?
+//!                     // Yes! Thanks to the `Drop` guarantee of `Pin`.
+//!                     // Since `*self` is not `Unpin`, and since `*self` has
+//!                     // been *witnessed*, even if just for an instant,
+//!                     // behind a `Pin`-wrapped pointer,
+//!                     // then the `Pin` contract gurantees to *us* witnesses
+//!                     // that the `*self` memory shall not be invalidated
+//!                     // (moved elsewhere and/or deällocated) before the
+//!                     // drop glue of `*self` has been invoked.
+//!                     //
+//!                     // So now we know that the `while {}` busy-looping of
+//!                     // the drop glue shall be running to prevent this
+//!                     // pointer from ever dangling until we set the flag.
+//!                     { ptr }.0.as_ref()
+//!                 };
+//!                 at_pending.store(true, Ordering::Release);
+//!             });
+//!         }
+//!     }
+//!
+//!     /// Helper to pass raw pointers through a `thread::spawn()` boundary.
+//!     struct UnsafeAssumeSend<T>(T);
+//!     unsafe impl<T> Send for UnsafeAssumeSend<T> {}
+//!     ```
+//!
+//!     As explained in the `// SAFETY??` comments, this API is sound, no matter
+//!     how evil or devious our caller is, since _they_ have the burden of
+//!     abiding by the [`Drop` guarantee of `Pin`]. In other words, if _they_
+//!     mess up that part around `Drop`, and the call to `.spawn_task()` ends up
+//!     resulting in, say, a use-after-free (UAF), because, say, our `Example`
+//!     instance is freed/destroyed without running `Example`'s [`drop()`]
+//!     glue, then the blame for the resulting Undefined Behavior is on
+//!     _them_, not us.
+//!
+//!  1. ### Violating it with <code>[OwnRef]\<\'\_, T></code> and [`Pin::new_unchecked()`]
+//!
+//!     ```rust
+//!     # #[derive(Default)] struct Example(::core::marker::PhantomPinned);
+//!     # impl Example { fn spawn_task(self: Pin<&Self>) {} }
+//!     #
+//!     use ::own_ref::{prelude::*, Slot};
+//!
+//!     {
+//!         let example_backing_memory = &mut Slot::VACANT; // or `slot()` shorthand.
+//!         let own_ref_to_example: OwnRef<'_, Example> =
+//!             example_backing_memory
+//!                 .holding(Example::default())
+//!         ;
+//!         let pinned_own_ref: Pin<OwnRef<'_, Example>> = unsafe {
+//!             // Safety??
+//!             // None whatsoever! This is unsound 😬
+//!             Pin::new_unchecked(own_ref_to_example)
+//!         };
+//!         let pinned_shared_ref: Pin<&'_ Example> = pinned_own_ref.as_ref();
+//!         // Schedule background thread to access `Example` in 10 seconds.
+//!         pinned_shared_ref.spawn_task();
+//!
+//!         ::core::mem::forget(pinned_own_ref); // disable `pinned_own_ref`'s drop glue.
+//!     } // <- the `*example_backing_memory` is deällocated/repurposed, with
+//!       //    no wait/busy-looping whatsoever, since there is nothing left to
+//!       //    be running the `drop()` glue of `Example` 😬
+//!     // 10s-ish later:
+//!     /* UAF, and thus, UB */
+//!     ```
+//!
+//!  1. ### How this module works around the problem
+//!
+//!     ```rust
+//!     # #[derive(Default)] struct Example(::core::marker::PhantomPinned);
+//!     # impl Example { fn spawn_task(self: Pin<&Self>) {} }
+//!     #
+//!     use ::own_ref::{prelude::*, pin::ManualOption};
+//!
+//!     {
+//!         let example_backing_memory = pin!(ManualOption::None); // or `pinned_slot!()` shorthand.
+//!         let pinned_own_ref: Pin<OwnRef<'_, Example, _>> =
+//!             example_backing_memory
+//!                 .holding(Example::default())
+//!         ;
+//!         let pinned_shared_ref: Pin<&'_ Example> = pinned_own_ref.as_ref();
+//!         // Schedule background thread to access `Example` in 10 seconds.
+//!         pinned_shared_ref.spawn_task();
+//!         ::core::mem::forget(pinned_own_ref); // disable `pinned_own_ref`'s drop glue.
+//!     } // <- the `*example_backing_memory` is …
+//!       //                                     …
+//!       //                                     actually detecting the above `forget()`
+//!       //                                     and taking `Drop` matters into its own hands,
+//!       //                                     running `Example`'s drop glue,
+//!       //                                     preventing the unsoundness! 🥳🥳💪
+//!     ```
+//!
+
 use super::*;
 use ::core::marker::PhantomPinned;
 

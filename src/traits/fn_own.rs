@@ -2,6 +2,8 @@
 
 use crate::OwnRef;
 
+pub trait Sealed<Args> {}
+
 /// Same as [`FnOnce`], but for having been designed with [`OwnRef`]s in mind.
 //
 // (This is what [`FnOnce`]'s true signature should have been.)
@@ -35,7 +37,8 @@ use crate::OwnRef;
 /// assert_eq!(s, "not copy");
 /// ```
 pub
-trait FnOwn<Args> : ඞFnOwnUnchecked<Args> {
+trait FnOwn<Args> : FnOwnRet<Args> + ඞ<Args> {
+    /// The moral equivalent of `extern "rust-call" fn call_once`.
     fn call_ownref(self, args: Args)
       -> Self::Ret
     where
@@ -50,8 +53,13 @@ macro_rules! call_ownref_N {(
     $( $N:ident $($I:ident)* )?
 ) => (
     $(
-        call_ownref_N! { $($I)* }
         ::paste::paste! {
+            /// Convenience sugar around [`Self::call_ownref()`].
+            ///
+            /// These go up to an arity of
+            #[doc = crate::arities::max!()]
+            /// arguments (some may have been hidden from the docs to keep them
+            /// legible).
             fn [< call_ownref$N >]<$($I),*>(
                 self,
                 $($I: $I),*
@@ -66,24 +74,28 @@ macro_rules! call_ownref_N {(
     )?
 )} use call_ownref_N;
 
-#[doc(hidden)] /** Not part of the public API! */ pub
-trait ඞFnOwnRet<Args> {
+/// The `type Ret = …;` part of [`FnOwn`].
+pub
+trait FnOwnRet<Args> : Sealed<Args> {
     type Ret;
 }
 
 #[doc(hidden)] /** Not part of the public API! */ pub
-trait ඞFnOwnUnchecked<Args> : ඞFnOwnRet<Args> {
+trait FnOwnUnchecked<Args> : FnOwnRet<Args> {
     // SAFETY(pub): NONE!
-    // SAFETY(in crate): make sure that the pointee has been `ManuallyDrop`-wrapped beforehand.
+    // SAFETY(in crate): it must be sound for the callee to
+    // transmute the `&'_ mut Self` to a `OwnRef<'_, Self>`.
+    // This is true for `DropFlags::No`, for instance, when `Self`
+    // has been `ManuallyDrop<>`-wrapped before being `&mut`-borrowed.
     #[doc(hidden)] /** Not part of the public API! */
     unsafe
     fn ඞdyn_call_ownref(&mut self, _: Args)
       -> Self::Ret
     ;
 }
+use FnOwnUnchecked as ඞ;
 
-impl<F : FnOwn<Args>, Args> ඞFnOwnUnchecked<Args> for F {
-    #[doc(hidden)] /** Not part of the public API! */
+impl<F : FnOwn<Args>, Args> FnOwnUnchecked<Args> for F {
     unsafe
     fn ඞdyn_call_ownref(&mut self, args: Args)
       -> Self::Ret
@@ -91,6 +103,7 @@ impl<F : FnOwn<Args>, Args> ඞFnOwnUnchecked<Args> for F {
         unsafe {
             // SAFETY: this being sound is the safety precondition.
             // `<*mut Self>::read()` here is the moral equivalent of `ManuallyDrop::take()`.
+            // i.e., `OwnRef::into_inner()`.
             <*mut Self>::read(self)
         }
         .call_ownref(args)
@@ -113,38 +126,50 @@ crate::arities::feed_all!(=> impls!);
 // where
 macro_rules! impls {
     (
-        $( $N:ident $($I:ident)* )?
+        $($I:ident)*
     ) => (
-        $( impls! { $($I)* } )?
-
-        impl<F, Ret $(, $N $(, $I)* )?>
-            ඞFnOwnRet<($( $N, $($I),* )?)>
+        impl<F, Ret $(, $I)*>
+            Sealed<($($I, )*)>
         for
             F
         where
-            F : FnOnce($($N $(, $I)*)?) -> Ret,
+            F : FnOnce($($I),*) -> Ret,
+        {}
+
+        impl<F, Ret $(, $I)*>
+            FnOwnRet<($($I, )*)>
+        for
+            F
+        where
+            F : FnOnce($($I),*) -> Ret,
         {
             type Ret = Ret;
         }
 
-        impl<F, Ret $(, $N $(, $I)* )?>
-            FnOwn<($( $N, $($I),* )?)>
+        impl<F, Ret $(, $I)*>
+            FnOwn<($($I, )*)>
         for
             F
         where
-            F : FnOnce($($N $(, $I)*)?) -> Ret,
+            F : FnOnce($($I),*) -> Ret,
         {
-            fn call_ownref(self, ($( $N, $($I),* )?): ($( $N, $($I),* )?))
+            fn call_ownref(self, ($($I, )*): ($($I, )*))
               -> Self::Ret
             {
-                self($( $N, $($I),* )?)
+                self($($I),*)
             }
         }
     );
 } use impls;
 
 impl<'slot, Args, F : ?Sized + FnOwn<Args>>
-    ඞFnOwnRet<Args>
+    Sealed<Args>
+for
+    OwnRef<'slot, F>
+{}
+
+impl<'slot, Args, F : ?Sized + FnOwn<Args>>
+    FnOwnRet<Args>
 for
     OwnRef<'slot, F>
 {

@@ -70,7 +70,8 @@ use super::*;
 ///
 /// // 2. Use `storage.holding(value)` instead of `own_ref!(value)`.
 /// let some_ownref: Option<OwnRef<'_, String>> =
-///     some_option.map(|s| storage.holding(s))
+///  // some_option.map(|s| own_ref!(s))        // ❌
+///     some_option.map(|s| storage.holding(s)) // ✅
 /// ;
 /// // 3. Profit™
 /// dbg!(&some_ownref);
@@ -161,6 +162,7 @@ impl<T> Slot<T> {
     }
 }
 
+/// Allows direct usage of `.holding()` on `MaybeUninit<T>` storage.
 #[extension(pub trait MaybeUninitExt)]
 impl<T> MU<T> {
     #[inline]
@@ -185,17 +187,16 @@ crate::arities::feed_all!(=> impls!);
 // where
 macro_rules! impls {
     (
-        $( $N:ident $($I:ident)* )?
+        $($I:ident)*
     ) => (
-        $( impls! { $($I)* } )?
 
-        impl<$( $N $(, $I)* )?> TupleSlots
+        impl<$($I),*> TupleSlots
             for (
-                $( Slot<$N>, $(Slot<$I>),* )?
+                $(Slot<$I>, )*
             )
         {
             const TUPLE_SLOTS: Self = (
-                $( Slot::<$N>::VACANT, $(Slot::<$I>::VACANT),* )?
+                $(Slot::<$I>::VACANT, )*
             );
         }
     )
