@@ -128,3 +128,21 @@ fn robust_way()
         let _o: OwnRef<'_, _> = identity(storage.holding(String::from("…")));
     }
 }
+
+#[test]
+fn drop_flags_require_non_covariance() {
+    let storage = pinned_slot!();
+    struct PrintOnDrop<'r>(&'r str);
+    impl Drop for PrintOnDrop<'_> {
+        fn drop(&mut self) {
+            dbg!(self.0);
+        }
+    }
+    let o = storage.holding(PrintOnDrop("static"));
+    {
+        let local = String::from("…");
+        let mut o = o;
+        o.0 = &local[..];
+        ::core::mem::forget(o);
+    }
+}

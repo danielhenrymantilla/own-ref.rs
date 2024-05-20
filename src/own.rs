@@ -34,6 +34,7 @@ struct OwnRef<
     //       - or a `* {const,mut} _` (since we can use `as _` casts)
     //       - or a braced struct thereof.
     //   - Able to carry (exclusive) `Write`-access provenance to the `T`.
+    //     (And even beyond `T` in the case of `DropFlags::Yes`.)
     // Among the second point candidates:
     //   - the first point only allows for `&` or `*const`;
     //   - the third point only allows for `&mut` or `*{const,mut}`.
@@ -180,11 +181,11 @@ impl<'slot, T : ?Sized, D> OwnRef<'slot, T, D> {
     ///
     ///   2. `D` ought not to be [`pin::DropFlags::Yes`].
     ///
-    ///      If it is, then `ptr` must be pointing
+    ///      If it is, then careful with variance! Also, `ptr` must be pointing
     ///      to the `.value` field of a [`pin::ManualOption`], with exclusive
     ///      write provenance over the whole `ManualOption`.
     ///
-    ///        - (currently that field is not exposed at all publicly because it
+    ///        - (currently that field is not exposed at all publicly since it
     ///          is a very finicky requirement).
     #[inline(always)]
     pub

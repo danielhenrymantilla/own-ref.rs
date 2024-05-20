@@ -78,14 +78,18 @@ impl<T> ManualOption<T> {
     fn as_ref(&self)
       -> Option<&T>
     {
-        self.is_some.then(|| unsafe { self.value.assume_init_ref() })
+        self.is_some.then(|| unsafe {
+            self.value.assume_init_ref()
+        })
     }
 
     pub
     fn as_mut(&mut self)
       -> Option<&mut T>
     {
-        self.is_some.then(|| unsafe { self.value.assume_init_mut() })
+        self.is_some.then(|| unsafe {
+            self.value.assume_init_mut()
+        })
     }
 
     /// Same as [`Slot::holding()`], but for it returning a `Pin`ned `value`.
