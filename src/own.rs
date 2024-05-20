@@ -29,6 +29,7 @@ struct OwnRef<
     #[doc(hidden)] pub
     // We *need* this field to be:
     //   - Covariant in `<T>` (much like `T` and `Box<T>` are).
+    //       - EDIT: actually, see `_non_covariant_in_case_of_drop_flags`.
     //   - Compatible with lifetime extension shenanigans. This means:
     //       - either a `& mut? _`,
     //       - or a `* {const,mut} _` (since we can use `as _` casts)
@@ -55,6 +56,39 @@ struct OwnRef<
     // `T : 'slot` as well.
     #[doc(hidden)] /** Not part of the public API. */ pub
     _drop_flags_marker: PD<fn() -> (&'static DropFlags, &'slot T)>,
+
+    // A note about covariance: an `&'_ own T`, that is, an `OwnRef<'_, T>`,
+    // i.e., a `OwnRef<'_, T, DropFlags::No>`, conceptually, can perfectly well
+    // be covariant (despite the `DerefMut`), much like a `Box` is: ownership is
+    // strong enough of a restriction to avoid the unsoundness that stems from
+    // borrowed/externally-witnessable covariant mutable access (_e.g._, that of
+    // `&mut T`, or `&Cell<T>`).
+    //
+    // However, we do have a problem in the `DropFlags::Yes` case (the design
+    // used to become `Pin`-constructible). Indeed, the presence of these drop
+    // flags is making our `OwnRef<'_, T, DropFlags::Yes>` act more like a
+    // `&mut Option<T>` than like a `&mut ManuallyDrop<T>`.
+    //
+    // And this is a problem, since an `Option<T>` does very much have `T`-using
+    // drop glue (the whole point of the `DropFlags::Yes` design!).
+    //
+    // And if the backing storage ceases to be a dummy bag-of-bytes entity, and
+    // is now an entity capable of dropping a typed `T` as such (even though
+    // this is only supposed to happen in the unlikely/silly case of the
+    // `Pin<OwnRef<…>>` owner having `mem::forget()`ten it or such), then we
+    // very much no longer have the necessary *full, detached-from-parent
+    // ownership* which the mutable-yet-covariant handle requires for soundness.
+    //
+    // That is, `OwnRef<'_, T, DropFlags::Yes>` must very much *not* be
+    // covariant over `T`, lest unsoundness ensue.
+    // See `fn guard_against_covariance_if_drop_flags()` for a demo.
+    //
+    // And, alas, there is no way for the specific choice of a generic
+    // parameter (here, `D`), to affect (here, reduce) the variance of another
+    // generic parameter (here, `T`). The intuitive `D::Gat<T>` type is
+    // currently unconditionally invariant...
+    #[doc(hidden)] /** Not part of the public API. */ pub
+    _non_covariant_in_case_of_drop_flags: PD<fn(&T)>,
 }
 
 /// What is a `&'slot own T`, after all?
@@ -142,6 +176,7 @@ macro_rules! own_ref {( $value:expr $(,)? ) => ({
             ,
             _semantics: $crate::ඞ::PD,
             _drop_flags_marker: $crate::ඞ::PD,
+            _non_covariant_in_case_of_drop_flags: $crate::ඞ::PD,
         }
     }
 })}
@@ -208,6 +243,7 @@ impl<'slot, T : ?Sized, D> OwnRef<'slot, T, D> {
             },
             _semantics: <_>::default(),
             _drop_flags_marker: <_>::default(),
+            _non_covariant_in_case_of_drop_flags: <_>::default(),
         }
     }
 

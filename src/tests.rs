@@ -42,13 +42,19 @@ fn main()
         }
         let _o: OwnRef<'_, dyn FnOnce()> = ::own_ref::unsize!(storage.holding(|| ()));
     }
-    {
-        let local: &str = &String::from("…");
-        let a: OwnRef<'_, &'static str> = own_ref!("");
-        let b: OwnRef<'_, &'_ str> = own_ref!(local);
-        fn same_lifetime<T>(_: T, _: T) {}
-        same_lifetime(a, b);
-    }
+}
+
+
+/// RIP 😭
+#[cfg(doctest)]
+#[apply(compile_fail!)]
+fn alas_non_covariant()
+{
+    let local: &str = &String::from("…");
+    let a: OwnRef<'_, &'static str> = own_ref!("");
+    let b: OwnRef<'_, &'_ str> = own_ref!(local);
+    fn same_lifetime<T>(_: T, _: T) {}
+    same_lifetime(a, b);
 }
 
 #[test]
@@ -129,8 +135,14 @@ fn robust_way()
     }
 }
 
-#[test]
-fn drop_flags_require_non_covariance() {
+/// For those unconvinced of the need to be non-covariant over `T` in the
+/// `DropFlags` case, replace this with `#[test]`, and the
+/// `_non_covariant_in_case_of_drop_flags` field, with a `PD<fn(&())>` (so that
+/// it becomes covariant again). Then, witness the might of
+/// `cargo +nightly miri test`.
+#[cfg(doctest)]
+#[apply(compile_fail!)]
+fn guard_against_covariance_if_drop_flags() {
     let storage = pinned_slot!();
     struct PrintOnDrop<'r>(&'r str);
     impl Drop for PrintOnDrop<'_> {
@@ -140,9 +152,11 @@ fn drop_flags_require_non_covariance() {
     }
     let o = storage.holding(PrintOnDrop("static"));
     {
-        let local = String::from("…");
-        let mut o = o;
-        o.0 = &local[..];
-        ::core::mem::forget(o);
+        let local = String::from("local");
+        let mut o = o; // needs covariance!
+        o.0 = &local[..]; // for this assignment to compile.
+
+        ::core::mem::forget(o); // if evil/careless.
     }
+    /* implicit `drop(storage)`, which in turn drops the `PrintOnDrop`. */
 }

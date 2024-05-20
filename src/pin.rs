@@ -122,8 +122,35 @@ impl<T> ManualOption<T> {
             // `addr_of_mut!` shrinks provenance…
             // Biggest footgun in Rust, imho.
             let this: *mut Self = this;
+            // `OwnRef<'_, T, DropFlags::Yes>`' drop glue relies on this.
+            {
+                impl<T> ManualOption<T> {
+                    const FIELD_OFFSET_ASSERTION: () = assert!(
+                        (
+                            ::core::mem::offset_of!(
+                                crate::pin::ManualOption<T> ,value
+                            )
+                            -
+                            ::core::mem::align_of::<T>()
+                        )
+                        ==
+                        ::core::mem::offset_of!(
+                            crate::pin::ManualOption<T> ,is_some
+                        )
+                    );
+                }
+                () = ManualOption::<T>::FIELD_OFFSET_ASSERTION;
+            }
+            // Safety:
+            //   - we have just `const`-checked the layout assumption.
+            //   - our raw pointer does indeed behave similarly to a `&mut MD<T>`,
+            //     insofar if the `OwnRef` is indeed dropped, then the `is_some`
+            //     flag is cleared so that our `ManualOption<T>` do nothing,
+            //     thence acting like a `ManuallyDrop<T>`.
             let own_ref = OwnRef::from_raw(
-                // Make sure to keep provenance over all of `*self`.
+                // We have made sure to keep provenance over all of `*self`,
+                // so that the resulting pointer is still allowed to,
+                // eventually, mutate back the `.is_some` field.
                 ::core::ptr::addr_of_mut!((*this).value).cast(),
                 [],
             );
