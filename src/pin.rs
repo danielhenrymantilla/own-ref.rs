@@ -1,23 +1,24 @@
 //! Module and APIs to combine [`OwnRef`]s with [`Pin`]ning.
 //!
-//! Granted, it is intellectually pleasing and, at first glance, conceptually
-//! making sense (a `pinned_own_ref!(f)` being expected to behave as a more
-//! powerful <code>[pin!]\(f\)</code>, with some of the ownership semantics of
-//! <code>[Box::pin]\(f)</code> sprinkled on top of it).
+//! Granted, it is intellectually pleasing and, at first glance, it conceptually
+//! makes sense to combine these two abstractions (a `pinned_own_ref!(f)` being
+//! expected to behave as a more powerful <code>[pin!]\(f\)</code>, with some of
+//! the ownership semantics of <code>[Box::pin]\(f)</code> sprinkled on top of
+//! it).
 //!
 //! Alas,
 //!
 //!   - if you have a proper mental model of how <code>[OwnRef]\<\'slot, T\></code>
 //!     is "just" a "glorified" [`Drop`]-imbued wrapper around
 //!     <code>\&\'slot mut [ManuallyDrop]\<T\></code>,
-//!     with no control over the backing storage used for that `T` whatsoever
+//!     with no control over the backing storage used for that `T` whatsoever;
 //!
-//!       - (especially around how it may be reclaimed and reüsed),
+//!       - (especially around how it may be reclaimed and reüsed)
 //!
 //! [ManuallyDrop]: ::core::mem::ManuallyDrop
 //!
 //!   - and if you are also aware of how important the [`Drop` guarantee of
-//!     `Pin`] is,
+//!     `Pin`] is;
 //!
 //! [`Drop` guarantee of `Pin`]: https://doc.rust-lang.org/1.78.0/std/pin/index.html#subtle-details-and-the-drop-guarantee
 //!
@@ -104,14 +105,15 @@
 //!
 //!  1. ### Violating it with <code>[OwnRef]\<\'\_, T></code> and [`Pin::new_unchecked()`]
 //!
-//!     ```rust
+//!     ```rust ,no_run
 //!     # #[derive(Default)] struct Example(::core::marker::PhantomPinned);
 //!     # impl Example { fn spawn_task(self: Pin<&Self>) {} }
 //!     #
 //!     use ::own_ref::{prelude::*, Slot};
 //!
 //!     {
-//!         let example_backing_memory = &mut Slot::VACANT; // or `slot()` shorthand.
+//!         let example_backing_memory = &mut Slot::VACANT;
+//!         //                       or `&mut slot()` shorthand.
 //!         let own_ref_to_example: OwnRef<'_, Example> =
 //!             example_backing_memory
 //!                 .holding(Example::default())
@@ -131,9 +133,134 @@
 //!       //    be running the `drop()` glue of `Example` 😬
 //!     // 10s-ish later:
 //!     /* UAF, and thus, UB */
+//!     ::std::thread::sleep(::std::time::Duration::from_secs(11));
 //!     ```
 //!
+//!     <details open><summary>Click to hide the explanation and compare the snippets</summary>
+//!
+//!     The problem with this API stems from the "zero-cost"-ness of the
+//!     <code>[slot()].[holding(…)][Slot::holding()]</code><br/>
+//!     <code>[OwnRef]\<\'slot, …\></code>-yielding pattern.
+//!
+//!     Indeed, the design/ideä of this API is for [`Slot`] to be _inert_,
+//!     w.r.t. the `T` it _may_ contain. It will, itself, never try to access or
+//!     use it, it's just a bag of bytes which "somebody" else may use at their
+//!     own (`&mut`-exclusive) leisure (again, while this talks mostly about
+//!     _local_ (stack) storage, the similarity with the
+//!     [`alloc()`][::std::alloc::alloc] APIs, in the case of `Box<T>`, should
+//!     be quite visible).
+//!
+//!       - To speak in more concrete implementation-detail-exposing terms, a
+//!         <code>[Slot\<T\>][Slot]</code> is just a
+//!         <code>[ManuallyDrop]\<T\></code> wearing a fancy _negligee_.
+//!
+//!         So, much like <code>[ManuallyDrop]\<T\></code>, it is itself
+//!         completely unaware and oblivious of whether there is an actually
+//!         initialized or active `T` instance in it, so the whole thing is just
+//!         ignored, and it itself acts simply as a sheer bag of bytes.
+//!
+//!     **All of the `T`-interacting logic, _including the [`drop()`] glue_,
+//!     thus lies within the resulting <code>[OwnRef]\<\'slot, T\></code>
+//!     "handle"**.
+//!
+//!     Thus, if it gets [forgot][::core::mem::forget]ten, there is nothing
+//!     responsible for dropping the `T` memory! This is usually fine (by the
+//!     principle of "leak amplification"), but in the case of the
+//!     [`Drop` guarantee of `Pin`], it is not acceptable, which makes usage of
+//!     [`Pin::new_unchecked()`] on such a pointer unsound.
+//!
+//!     </details>
+//!
 //!  1. ### How this module works around the problem
+//!
+//!     <details open><summary>Click to hide the explanation and compare the snippets</summary>
+//!
+//!     What if we made our `T`-holding memory a bit smarter then? Right now it
+//!     just lends its bytes to whomever asks for them, _naïvely_ expecting the
+//!     `T`s inserted therein to be properly taken care of, _naïvely_ trusting
+//!     the [`OwnRef`]. But, as we've seen, since the [`OwnRef`] itself may be
+//!     [forgot][::core::mem::forget]ten, such naïve/unconditional trust may be
+//!     ill-suited: we need more skeptical/distrustful/apprehensive/circumspect
+//!     memory: <code>[ManualOption]\<T\></code>!
+//!
+//!     <img
+//!         alt="fry sus meme"
+//!         title="fry sus meme"
+//!         src="https://gist.github.com/assets/9920355/99afe5d8-3c39-4bd4-9e22-a562da7b53b4"
+//!         height="200px"
+//!     />
+//!
+//!     <code>[ManualOption]\<T\></code> is, modulo implementation details,
+//!     functionally equivalent to an <code>[Option]\<T\></code>: it may hold a
+//!     `T` value inside of it, **and it keeps a runtime flag/discriminant to
+//!     know if such a value is there!**
+//!
+//!     We can then define a special <code>[Pin]\<\&mut [Some]\(T\)\></code>
+//!     "auto-[`.unwrap()`][Option::unwrap]ping" handle, which, on [`Drop`],
+//!     _clears_ the `Option<T>` referee by [`.set`][Pin::set]ting it back to
+//!     [`None`], thereby [`drop_in_place()`][::core::ptr::drop_in_place]-ing
+//!     the `T` value (in the happy / non-[forgot][::core::mem::forget]ten case).
+//!
+//!     Such a wrapper is a _new_ / **distinct** [`OwnRef`]-like type:
+//!
+//!     > <code>[OwnRef]\<\'slot, T, [DropFlags::Yes]\></code>
+//!
+//!       - Notice how a normal [`OwnRef`], _by default_, is actually an
+//!         <code>[OwnRef]\<\'slot, T, [DropFlags::No]\></code>.
+//!
+//!     And, in the sad/silly [forgot][::core::mem::forget]ten case, we still
+//!     have the [`drop()`] glue of our <code>[ManualOption]\<T\></code> backing
+//!     memory holder running, which much like for an <code>[Option]\<T\></code>,
+//!     **runtime-checks** whether there is indeed a [`ManualOption::None`]
+//!     inside of it (_detecting whether proper disposal of its value has been
+//!     done_), **else it [`drop_in_place()`][::core::ptr::drop_in_place]s the
+//!     `T` value lying therein _by itself_!**
+//!
+//!       - For those wondering, the [`ManualOption`] itself cannot be
+//!         forgotten, since it only lends itself to
+//!         [`holding()`][ManualOption::holding] a value of type `T` through
+//!         a <code>**[Pin]**\<\&mut [Self][ManualOption]\></code> reference,
+//!         and it is itself `!Unpin`, which means we are now ourselves meeting
+//!         all the criteria to benefit from the [`Drop` guarantee of `Pin`] 🤯
+//!
+//!       - Notice how, at the end of the day, the only role played by this
+//!         <code>[Some][ManualOption::Some]/[None][ManualOption::None]</code>
+//!         discriminant/flag is for _dropping purposes.
+//!
+//!         It is thus plays a role very similar to the language built-in
+//!         _drop flags_ of Rust:
+//!
+//!         ```rust
+//!         # let some_condition = true;
+//!         {
+//!             let s;
+//!          // let mut is_some = false; // <- "drop flag".
+//!             if some_condition {
+//!                 s = String::from("to be freed");
+//!              // is_some = true;
+//!             }
+//!         } // <- frees the `String` iff `s` `is_some`.
+//!         ```
+//!
+//!         being equivalent to:
+//!
+//!         ```rust
+//!         # let some_condition = true;
+//!         {
+//!             let mut s = None;
+//!             if some_condition {
+//!                 s = Some(String::from("to be freed"));
+//!             }
+//!         } // <- frees the `String` iff `s` `.is_some()`.
+//!         ```
+//!
+//!         Hence why the combined usage of a [`ManualOption`] with an
+//!         <code>[OwnRef]\<\'slot, T, [DropFlags::Yes]\></code>
+//!         is said to be using _drop flags_.
+//!
+//!     All this results in a sound, and non-`unsafe`, API 😇:
+//!
+//!     </details>
 //!
 //!     ```rust
 //!     # #[derive(Default)] struct Example(::core::marker::PhantomPinned);
@@ -142,7 +269,8 @@
 //!     use ::own_ref::{prelude::*, pin::ManualOption};
 //!
 //!     {
-//!         let example_backing_memory = pin!(ManualOption::None); // or `pinned_slot!()` shorthand.
+//!         let example_backing_memory = pin!(ManualOption::None);
+//!         //                       or `pinned_slot!()` shorthand.
 //!         let pinned_own_ref: Pin<OwnRef<'_, Example, _>> =
 //!             example_backing_memory
 //!                 .holding(Example::default())
@@ -152,11 +280,11 @@
 //!         pinned_shared_ref.spawn_task();
 //!         ::core::mem::forget(pinned_own_ref); // disable `pinned_own_ref`'s drop glue.
 //!     } // <- the `*example_backing_memory` is …
-//!       //                                     …
 //!       //                                     actually detecting the above `forget()`
 //!       //                                     and taking `Drop` matters into its own hands,
 //!       //                                     running `Example`'s drop glue,
 //!       //                                     preventing the unsoundness! 🥳🥳💪
+//!     /* spin-looping until the spawned thread is done with `Example`. */
 //!     ```
 //!
 
