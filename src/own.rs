@@ -6,6 +6,8 @@ use ::core::mem::ManuallyDrop;
 
 mod impls;
 
+/// `&'slot own T`.
+// TODO: main crate docs.
 pub
 struct OwnRef<
     'slot,
@@ -140,9 +142,55 @@ impl<'slot, T : ?Sized, DropFlags> Drop for OwnRef<'slot, T, DropFlags> {
     }
 }
 
+impl<'slot, T> OwnRef<'slot, T> {
+    /// Perform a "deref-move" operation akin to `*` on `Box`es.
+    ///
+    /// Same API as `OwnRef::into_inner()`, but with some more _panache_.
+    pub
+    fn deref_move(
+        self: OwnRef<'slot, T>,
+    ) -> T
+    {
+        unsafe {
+            <*mut T>::read(&mut **MD::new(self))
+        }
+    }
+}
+
 /// Main/most useful [`OwnRef`] constructor.
 ///
 /// It works very similarly to [`pin!`], but producing [`OwnRef`]s instead.
+///
+/// ## Syntax
+///
+///   - `own_ref!(<expr>)`, which infers the type of `<expr>` to output;
+///
+///     ```rust
+///     # const _: &str = stringify! {
+///     let own = own_ref!(some_variable);
+///     let own = own_ref!(some_call());
+///     # };
+///     ```
+///
+///   - `own_ref!(: <type> = <expr>)`, which nudges type inference to pick `<type>`.
+///
+///     ```rust
+///     # const _: &str = r#"
+///     let own = own_ref!(: i32 = 42);
+///     let own = own_ref!(: _ = value…); // same as `own_ref!(value…)`
+///     # "#;
+///     ```
+///
+///     Mostly useful when chaining the `own_ref!()` construction with method
+///     calls, such as
+///
+///     ```rust
+///     # use ::own_ref::prelude::*;
+///     own_ref!(: String = "…".into())
+///         .downcast::<bool>()
+///         .unwrap_err()
+///     # ;
+///     ```
 ///
 /// ## Examples
 ///
@@ -226,10 +274,10 @@ impl<'slot, T : ?Sized, DropFlags> Drop for OwnRef<'slot, T, DropFlags> {
 ///   - either [`slot().holding()`][crate::slot()];
 ///   - or the [`OwnRef::with()`] scoped API.
 ///
-/// (these, however, do not feature built-in unsizing, and would require
+/// (these, however, do not feature built-in unsizing, so they might require
 /// explicit calls to [`unsize!`].)
 #[macro_export]
-macro_rules! own_ref {( $value:expr $(,)? ) => ({
+macro_rules! own_ref {( : $T:ty = $value:expr $(,)? ) => ({
     let value = $value;
     #[allow(warnings, clippy::all, clippy::pedantic)] {
         // Safety: we construct a `&mut MD<T>` temporary and pass a pointer to it
@@ -244,30 +292,36 @@ macro_rules! own_ref {( $value:expr $(,)? ) => ({
         // The whole `HackMD` layer is then just there to hide the `&()` so as
         // to unify with `OwnRef`s constructed otherwise (_e.g._, from a `Slot`
         // or the `with()` scoped constructor).
-        OwnRef::<'_, _, $crate::pin::DropFlags::No> {
+        OwnRef::<'_, $T, $crate::pin::DropFlags::No> {
             _ඞunsafe_to_construct: unsafe { $crate::ඞ::Unsafe::token() },
             r#unsafe:
                 // main temporary
-                (&mut $crate::ඞ::HackMD::<&(), _> {
+                (&mut $crate::ඞ::HackMD::<&(), $T> {
                     value: $crate::ඞ::MD::new(value),
                     // extra temporary whose lifetime is not erased.
                     _temporary: &::core::mem::drop(()),
                 })
                 // `DerefMut` coercion (to yeet the pointer to the extra
                 // temporary into `PhantomData` oblivion (but not its lifetime))
-                as &mut $crate::ඞ::HackMD::<$crate::ඞ::PD<&()>, _>
+                as &mut $crate::ඞ::HackMD::<$crate::ඞ::PD<&()>, $T>
 
                 // go through `*mut` to avoid through-`&` provenance loss.
                 // (I'd have loved to use `addr_of_mut!` instead, but it
                 // purposely rejects lifetime extension).
-                as *mut _
+                as *mut $crate::ඞ::HackMD::<$crate::ඞ::PD<&()>, $T>
             ,
             _ඞsemantics: $crate::ඞ::PD,
             _ඞdrop_flags_marker: $crate::ඞ::PD,
             _ඞnon_covariant_in_case_of_drop_flags: $crate::ඞ::PD,
         }
     }
-})}
+});
+
+(
+    $value:expr $(,)?
+) => (
+    $crate::own_ref! { : _ = $value }
+)}
 
 impl<'slot, T> OwnRef<'slot, T> {
     /// Low-level [`OwnRef`] construction.
@@ -290,7 +344,7 @@ impl<'slot, T> OwnRef<'slot, T> {
     /// Do note that the [`Pin`-related APIs][mod@crate::pin] and types, such as
     /// <code>[OwnRef]\<\'\_, T, [DropFlags::Yes]\></code>, are more involved
     /// and subtle than this, with (raw) pointer _provenance_ playing an
-    /// important role. Try to steer away of `unsafe`ly constructing that type.
+    /// important role. Try to steer away from `unsafe`ly constructing that type.
     ///
     /// [DropFlags::Yes]: crate::pin::DropFlags::Yes
     ///
@@ -298,7 +352,7 @@ impl<'slot, T> OwnRef<'slot, T> {
     ///
     /// Calling this returns a handle which, ultimately, calls
     /// [`ManuallyDrop::drop()`] (or [`ManuallyDrop::take()`] if calling
-    /// [`OwnRef::into_inner()`]), so necessarily, the safety requirements and
+    /// [`OwnRef::deref_move()`]), so necessarily, the safety requirements and
     /// _caveats_ of these [`ManuallyDrop`] APIs apply.
     ///
     /// Good news is, they also suffice.
@@ -316,6 +370,13 @@ impl<'slot, T> OwnRef<'slot, T> {
 }
 
 impl<'slot, T> OwnRef<'slot, T> {
+    /// Simple, albeit limited, [`OwnRef`] constructor, through a scoped API.
+    ///
+    /// Using [`own_ref!`] will, most of the time, result in a more flexible and
+    /// pleasant API.
+    ///
+    /// ## Example
+    ///
     /// ```rust
     /// use ::own_ref::*;
     ///
@@ -364,6 +425,19 @@ impl<'slot, T : ?Sized, D> OwnRef<'slot, T, D> {
         _you_can_use_this_to_bound_the_lifetime: [&'slot (); 0],
     ) -> OwnRef<'slot, T, D>
     {
+        // check that `D` is one of `No`, `Yes`.
+        {
+            use ::core::any::TypeId;
+            use crate::pin::DropFlags::*;
+            let tid = TypeId::of::<D>();
+            match () {
+                _case if tid == TypeId::of::<Yes>() => {},
+                _case if tid == TypeId::of::<No>() => {},
+                _default => panic!(
+                    "instantiated `OwnRef::<_, D>::from_raw()` with D = {tid:?} not in `DropFlags`",
+                ),
+            }
+        }
         Self {
             _ඞunsafe_to_construct: unsafe {
                 // Safety: delegated to the caller
@@ -381,6 +455,13 @@ impl<'slot, T : ?Sized, D> OwnRef<'slot, T, D> {
         }
     }
 
+    /// Converts the [`OwnRef`] back into its constituent raw pointer,
+    /// disabling the [`Drop`] glue, and whatnot.
+    ///
+    /// The returned pair is conceptually equivalent to a
+    /// <code>\&\'slot [ManuallyDrop]\<T\></code>, but the usage of a raw
+    /// pointer avoids shrinking provenance of the pointer, which matters
+    /// when `D` is [`DropFlags::Yes`][crate::pin::DropFlags].
     #[inline(always)]
     pub
     fn into_raw(

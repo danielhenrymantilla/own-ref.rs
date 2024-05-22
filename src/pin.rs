@@ -1,10 +1,10 @@
 //! Module and APIs to combine [`OwnRef`]s with [`Pin`]ning.
 //!
-//! Granted, it is intellectually pleasing and, at first glance, it conceptually
-//! makes sense to combine these two abstractions (a `pinned_own_ref!(f)` being
-//! expected to behave as a more powerful <code>[pin!]\(f\)</code>, with some of
-//! the ownership semantics of <code>[Box::pin]\(f)</code> sprinkled on top of
-//! it).
+//! Granted, at first glance, not only is the notion intellectually pleasing,
+//! but it also makes sense to combine these two abstractions, conceptually speaking
+//! (a `pinned_own_ref!(f)` being expected to behave as a more powerful
+//! <code>[pin!]\(f\)</code>, with some of the ownership semantics of
+//! <code>[Box::pin]\(f)</code> sprinkled on top of it).
 //!
 //! Alas,
 //!
@@ -112,8 +112,7 @@
 //!     use ::own_ref::{prelude::*, Slot};
 //!
 //!     {
-//!         let example_backing_memory = &mut Slot::VACANT;
-//!         //                       or `&mut slot()` shorthand.
+//!         let example_backing_memory = &mut slot();
 //!         let own_ref_to_example: OwnRef<'_, Example> =
 //!             example_backing_memory
 //!                 .holding(Example::default())
@@ -195,7 +194,7 @@
 //!     `T` value inside of it, **and it keeps a runtime flag/discriminant to
 //!     know if such a value is there!**
 //!
-//!     We can then define a special <code>[Pin]\<\&mut [Some]\(T\)\></code>
+//!     We can then define a special <code>[Pin]\<\&mut [Some][ManualOption::Some]\(T\)\></code>
 //!     "auto-[`.unwrap()`][Option::unwrap]ping" handle, which, on [`Drop`],
 //!     _clears_ the `Option<T>` referee by [`.set`][Pin::set]ting it back to
 //!     [`None`], thereby [`drop_in_place()`][::core::ptr::drop_in_place]-ing
@@ -220,14 +219,15 @@
 //!         forgotten, since it only lends itself to
 //!         [`holding()`][ManualOption::holding] a value of type `T` through
 //!         a <code>**[Pin]**\<\&mut [Self][ManualOption]\></code> reference,
-//!         and it is itself `!Unpin`, which means we are now ourselves meeting
-//!         all the criteria to benefit from the [`Drop` guarantee of `Pin`] 🤯
+//!         and it is itself <code>\![Unpin]</code>, which means we are now
+//!         ourselves meeting all the criteria to benefit from the
+//!         [`Drop` guarantee of `Pin`] 🤯
 //!
 //!       - Notice how, at the end of the day, the only role played by this
 //!         <code>[Some][ManualOption::Some]/[None][ManualOption::None]</code>
-//!         discriminant/flag is for _dropping purposes.
+//!         discriminant/flag is for _dropping_ purposes.
 //!
-//!         It is thus plays a role very similar to the language built-in
+//!         It thus plays a role very similar to the language built-in
 //!         _drop flags_ of Rust:
 //!
 //!         ```rust
@@ -269,8 +269,8 @@
 //!     use ::own_ref::{prelude::*, pin::ManualOption};
 //!
 //!     {
-//!         let example_backing_memory = pin!(ManualOption::None);
-//!         //                       or `pinned_slot!()` shorthand.
+//!         let example_backing_memory = pin!(pin::slot());
+//!         //                       or `pin::slot!()` shorthand.
 //!         let pinned_own_ref: Pin<OwnRef<'_, Example, _>> =
 //!             example_backing_memory
 //!                 .holding(Example::default())
@@ -298,6 +298,9 @@ use ::core::marker::PhantomPinned;
 /// We *really* want `T : !Unpin` to make `ManualOption<T> : !Unpin`!
 impl<T : Unpin> Unpin for ManualOption<T> {}
 
+/// Moral equivalent of an <code>[Option]\<T\></code>, modulo discriminant
+/// layout implementation details (which are currently not exposed as part of
+/// the API, but if there is a desire for it, it could be).
 #[repr(C)]
 pub
 struct ManualOption<T> {
@@ -344,8 +347,10 @@ impl<T> From<ManualOption<T>> for Option<T> {
 }
 
 impl<T> ManualOption<T> {
+    /// Moral equivalent of [`Option::Some()`][Option::Some].
     #[allow(nonstandard_style)]
     pub
+    const
     fn Some(value: T)
       -> Self
     {
@@ -356,6 +361,7 @@ impl<T> ManualOption<T> {
         }
     }
 
+    /// Moral equivalent of [`Option::None`].
     #[allow(nonstandard_style)]
     pub
     const None: Self = Self {
@@ -364,6 +370,7 @@ impl<T> ManualOption<T> {
         _pin_sensitive: PhantomPinned,
     };
 
+    /// Moral equivalent of [`Option::as_ref()`].
     pub
     fn as_ref(&self)
       -> Option<&T>
@@ -373,6 +380,7 @@ impl<T> ManualOption<T> {
         })
     }
 
+    /// Moral equivalent of [`Option::as_mut()`].
     pub
     fn as_mut(&mut self)
       -> Option<&mut T>
@@ -384,19 +392,27 @@ impl<T> ManualOption<T> {
 
     /// Same as [`Slot::holding()`], but for it returning a `Pin`ned `value`.
     ///
-    /// Uses runtime drop flags to guard against improper memory leakage, lest unsoundness ensue.
+    /// Uses [runtime drop flags][self] to guard against improper memory leakage,
+    /// lest unsoundness ensue.
     ///
     /// # Example
     ///
     /// ```rust
     /// use ::own_ref::prelude::*;
     ///
+    /// # let some_condition = true;
     /// let future = async {
     ///     // …
     /// };
-    /// let slot = pinned_slot!();
+    /// let slot = pin::slot!();
     /// let mut future = slot.holding(future);
+    /// // Same usability as `pin!(future)`:
     /// let _: Pin<&mut dyn Future<Output = ()>> = future.as_mut();
+    /// if some_condition {
+    ///     // New capability of `pin::slot!().holding()` vs. `pin!`: early dropping!
+    ///     // (much like for `Box::pin`).
+    ///     drop(future);
+    /// }
     pub
     fn holding<'slot>(
         mut self: Pin<&'slot mut ManualOption<T>>,
@@ -417,15 +433,11 @@ impl<T> ManualOption<T> {
                 impl<T> ManualOption<T> {
                     const FIELD_OFFSET_ASSERTION: () = assert!(
                         (
-                            ::core::mem::offset_of!(
-                                crate::pin::ManualOption<T> ,value
-                            )
+                            ::core::mem::offset_of!(Self ,value)
                             -
                             ::core::mem::align_of::<T>()
-                        )
-                        ==
-                        ::core::mem::offset_of!(
-                            crate::pin::ManualOption<T> ,is_some
+                        ) == (
+                            ::core::mem::offset_of!(Self ,is_some)
                         )
                     );
                 }
@@ -439,7 +451,7 @@ impl<T> ManualOption<T> {
             //     thence acting like a `ManuallyDrop<T>`.
             let own_ref = OwnRef::from_raw(
                 // We have made sure to keep provenance over all of `*self`,
-                // so that the resulting pointer is still allowed to,
+                // so that the resulting pointer be still allowed to,
                 // eventually, mutate back the `.is_some` field.
                 ::core::ptr::addr_of_mut!((*this).value).cast(),
                 [],
@@ -462,7 +474,8 @@ impl<T> ManualOption<T> {
 impl<'slot, T> OwnRef<'slot, T, DropFlags::Yes> {
     /// Same as [`OwnRef::with()`], but for the `value` being `Pin`ned.
     ///
-    /// Uses runtime drop flags to guard against improper memory leakage, lest unsoundness ensue.
+    /// Uses [runtime drop flags][self] to guard against improper memory leakage,
+    /// lest unsoundness ensue.
     pub
     fn with_pinned<R>(
         value: T,
@@ -470,14 +483,14 @@ impl<'slot, T> OwnRef<'slot, T, DropFlags::Yes> {
     ) -> R
     {
         let yield_ = scope;
-        yield_(pinned_slot!().holding(value))
+        yield_(pin::slot!().holding(value))
     }
 }
 
 #[allow(nonstandard_style)]
 pub
 mod DropFlags {
-    //! Type-level `bool`
+    //! Type-level `bool`.
     //!
     //! ```rust
     //! # #[cfg(any())] macro_rules! {
@@ -487,27 +500,37 @@ mod DropFlags {
     //! }
     //! # }
     //! ```
+    //!
+    //! See the [`pin` module][mod@crate::pin] documentation for more information about this.
 
+    /// `DropFlags::No`, used by default by <code>[OwnRef]\<\'\_, T\></code>
+    ///
+    /// [OwnRef]: crate::OwnRef
     pub enum No {}
+
+    /// `DropFlags::Yes`, used by the [`pin`][mod@crate::pin]-friendly APIs.
     pub enum Yes {}
 
-    // pub trait Marker : seal::Sealed {}
-
-    // impl Marker for No {}
-    // impl Marker for Yes {}
-
-    // mod seal {
-    //     pub trait Sealed : 'static + Send + Sync {}
-    //     impl Sealed for super::No {}
-    //     impl Sealed for super::Yes {}
-    // }
+    // We don't seal this type-level `enum` for the sake of ergonomics, we'll
+    // just `panic!` if other instantiations are attempted.
 }
 
-/// Convenience shorthand for <code>[pin!]\([ManualOption::None])</code>.
+/// [`pin!`]-friendly version of [`crate::slot()`].
+///
+/// Intended to be immediately [`pin!`]ned. Thence the [`slot!`] shorthand.
+pub
+const
+fn slot<T>() -> ManualOption<T> {
+    ManualOption::None
+}
+
+#[doc(hidden)]
+/// Convenience shorthand for <code>[pin!]\([pin::slot()][slot()])</code>.
 ///
 /// To be used with [`.holding()`][ManualOption::holding].
 #[macro_export]
-macro_rules! pinned_slot {() => (
-    ::core::pin::pin!($crate::pin::ManualOption::None)
+macro_rules! ඞpinned_slot {() => (
+    ::core::pin::pin!($crate::pin::slot())
 )}
-pub use pinned_slot;
+#[doc(inline)]
+pub use ඞpinned_slot as slot;

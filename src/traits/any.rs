@@ -3,47 +3,47 @@
 use ::core::any::{Any, TypeId};
 use crate::OwnRef;
 
-with_send_sync! {}
-with_send_sync! { Send + }
-with_send_sync! { Sync + }
-with_send_sync! { Send + Sync + }
-// where
-macro_rules! with_send_sync {(
-    $($SendSync:tt)*
-) => (
-    impl<'slot> OwnRef<'slot, dyn $($SendSync)* Any> {
+    impl<'slot, T : ?Sized> OwnRef<'slot, T> {
         /// The moral equivalent of [`Box::downcast`], but for [`OwnRef`]s.
+        ///
+        /// > More like `.owncast()`, am I right? 🥁
         ///
         /// ## Example
         ///
         /// ```rust
+        /// #![forbid(unsafe_code)]
+        ///
         /// use ::core::any::{Any, TypeId};
         /// use ::own_ref::prelude::*;
         ///
         /// fn too_generic<T : 'static>(it: T) {
-        ///     #![forbid(unsafe_code)]
-        ///     // do something if `T` is a `String`
-        ///     if TypeId::of::<T>() == TypeId::of::<String>() {
+        ///     // Say we want to do something special if `T` is a `String`.
+        ///
+        ///     match own_ref!(: T = it).downcast::<String>() {
         ///         // Ok, `T = String` here, and this property is embodied
-        ///         // by `s: String` in this branch:
-        ///         let s: String =
-        ///             OwnRef::<'_, dyn Any>::downcast::<String>(own_ref!(it))
-        ///                 .unwrap_or_else(|_| unreachable!())
-        ///                 .into_inner()
-        ///         ;
-        ///         // …
+        ///         // by `s: &own String` in this branch:
+        ///         Ok(own_s) => {
+        ///             let s: String = own_s.deref_move();
+        ///             // …
+        ///         },
+        ///         Err(own_t) => {
+        ///             let it: T = own_t.deref_move();
+        ///         },
         ///     }
         /// }
         /// ```
         pub
-        fn downcast<T: 'static>(
-            self: OwnRef<'slot, dyn $($SendSync)* Any>,
+        fn downcast<U>(
+            self: OwnRef<'slot, T>,
         ) -> Result<
+                OwnRef<'slot, U>,
                 OwnRef<'slot, T>,
-                OwnRef<'slot, dyn $($SendSync)* Any>,
             >
+        where
+            T : Any,
+            U : Any,
         {
-            let _checked_eq @ true = (&*self).type_id() == TypeId::of::<T>()
+            let _checked_eq @ true = (&*self).type_id() == TypeId::of::<U>()
             else {
                 return Err(self);
             };
@@ -51,8 +51,7 @@ macro_rules! with_send_sync {(
             Ok(unsafe {
                 // Safety: same layout of thin pointers,
                 // and `TypeId`s have just been checked for equality.
-                OwnRef::from_raw(ptr as *mut ::core::mem::ManuallyDrop<T>, lt)
+                OwnRef::from_raw(ptr as *mut ::core::mem::ManuallyDrop<U>, lt)
             })
         }
     }
-)} use with_send_sync;

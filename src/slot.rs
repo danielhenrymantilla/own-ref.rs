@@ -6,13 +6,13 @@ use super::*;
 /// [`.holding()`][`Slot::holding()`] an owned value of type `T` in order to
 /// expose an [`OwnRef<'slot, T>`] without the need for macros nor callbacks.
 ///
-/// The very design and point of [`OwnRef`] is to split the _conceptual
-/// ownership_ (_i.e._, `drop` ability and responsibility) of some `value: T`
-/// from the memory management of the _backing storage_
-/// [holding][`Slot::holding()`] the bytes that constitute this value.
-/// Mainly, it is perfectly fine to _consume_, in an owning fashion (_e.g._,
-/// by `drop`ping it), the `T` itself, whilst this backing memory outlives it /
-/// with the backing memory oblivious to this fact / none the wiser.
+///   - The very design and point of [`OwnRef`] is to split the _conceptual
+///     ownership_ (_i.e._, `drop` ability and responsibility) of some `value: T`
+///     from the memory management of the _backing storage_
+///     [holding][`Slot::holding()`] the bytes that constitute this value.
+///     Mainly, it is perfectly fine to _consume_, in an owning fashion (_e.g._,
+///     by `drop`ping it), the `T` itself, whilst this backing memory outlives it /
+///     with the backing memory oblivious to this fact / none the wiser.
 ///
 /// And yet, the <code>let r = [own_ref!]\(value\);</code> expression only yields
 /// the "handle" owning the `value`, with no such backing storage in sight.
@@ -125,6 +125,54 @@ fn slot<T>()
 /// let c = &mut slot();
 /// # [a, b, c].iter_mut().for_each(|s| _ = s.holding(()));
 /// ```
+///
+/// For instance, prior to Rust 1.79.0, the "trailing temporaries" of
+/// `if { … } else { … }` and `match { =>` branches, for instance, would not get
+/// lifetime-extended to the parent scope.
+///
+/// This, in turn, used to require multiple [`slots()`] quite often:
+///
+/// ```rust
+/// use ::own_ref::{prelude::*, unsize};
+///
+/// let (a, b, c) = &mut slots();
+/// let f: OwnRef<'_, dyn FnOwn<(), Ret = String>> = match ::std::env::args().len() {
+///     0 => unsize!(a.holding(|| "<none>".into())),
+///     1 => {
+///         let arg: String = ::std::env::args().next().unwrap();
+///         unsize!(b.holding(move || {
+///             dbg!(&arg);
+///             // move out of capture: `FnOnce`! And yet no `Box` nor `Option::unwrap()` needed 💪
+///             arg
+///         }))
+///     },
+///     _ => unsize!(c.holding(|| "<too many>".into())),
+/// };
+/// f.call_ownref_0();
+/// ```
+///
+///   - See [`FnOwn`].
+///
+/// With Rust ≥ 1.79.0, the previous snippet can be simplified down to:
+///
+/// ```rust
+/// use ::own_ref::{prelude::*, unsize};
+///
+/// let f: OwnRef<'_, dyn FnOwn<(), Ret = String>> = match ::std::env::args().len() {
+///     0 => own_ref!(|| "<none>".into()),
+///     1 => {
+///         let arg: String = ::std::env::args().next().unwrap();
+///         own_ref!(move || {
+///             dbg!(&arg);
+///             // move out of capture: `FnOnce`! And yet no `Box` nor `Option::unwrap()` needed 💪
+///             arg
+///         })
+///     },
+///     _ => own_ref!(|| "<too many>".into()),
+/// };
+/// f.call_ownref_0();
+/// ```
+///
 #[inline(always)]
 pub
 const
@@ -189,15 +237,9 @@ macro_rules! impls {
     (
         $($I:ident)*
     ) => (
-
-        impl<$($I),*> TupleSlots
-            for (
-                $(Slot<$I>, )*
-            )
+        impl< $($I),* > TupleSlots for ( $(Slot<$I>, )* )
         {
-            const TUPLE_SLOTS: Self = (
-                $(Slot::<$I>::VACANT, )*
-            );
+            const TUPLE_SLOTS: Self = ( $(Slot::<$I>::VACANT, )* );
         }
     )
 } use impls;

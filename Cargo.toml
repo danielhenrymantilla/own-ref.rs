@@ -1,6 +1,6 @@
 [package]
 name = "own-ref"
-version = "0.1.0"
+version = "0.1.0-alpha"
 edition = "2021"
 rust-version = "1.68.0"  # when disabling the `offset_of` feature.
 # Still, the _recommended_ Rust version is ≥ 1.79.0

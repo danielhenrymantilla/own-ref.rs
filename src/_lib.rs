@@ -1,4 +1,4 @@
-// #![feature(coerce_unsized)]
+// TODO: main crate docs.
 #![warn(unsafe_op_in_unsafe_fn)]
 
 #[macro_use]
@@ -50,12 +50,16 @@ mod prelude {
         crate::{
             OwnRef,
             own_ref,
-            pinned_slot,
-            slot::slot,
-            slots,
+            slot::{slot, slots},
             traits::{FnOwn, MaybeUninitExt as _},
         },
+        module::pin,
     };
+    mod module {
+        #![allow(warnings, clippy::all)]
+        macro_rules! __ {() => ()} use __ as pin;
+        pub use crate::*;
+    }
 }
 
 #[doc(hidden)] /** Not part of the public API */ pub
@@ -84,15 +88,6 @@ mod ඞ {
         },
     };
 }
-
-#[cfg(any())]
-impl<'frame, T : ?Sized, U : ?Sized>
-    ::core::ops::CoerceUnsized<OwnRef<'frame, U>>
-for
-    OwnRef<'frame, T>
-where
-    &'frame mut MD<T> : ::core::ops::CoerceUnsized<&'frame mut MD<U>>,
-{}
 
 #[cfg(any(test, doctest))]
 mod tests;

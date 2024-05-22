@@ -12,7 +12,7 @@ fn main()
         drop(o);
     }
     {
-        let mut storage = Slot::VACANT;
+        let storage = &mut slot();
         let o = storage.holding(new(0));
         drop(o);
         let o = storage.holding(new(1));
@@ -23,14 +23,43 @@ fn main()
         drop(o);
     }
     {
-        let _o: OwnRef<'_, dyn FnOnce()> = own_ref!(|| ());
-        // Alas, not much we can do with an `OwnRef<…dyn FnOnce()>`.
+        let mut dropped = false;
+        let not_copy = ::scopeguard::guard((), |()| dropped = true);
+        let o: OwnRef<'_, dyn FnOnce()> = own_ref!(|| drop(not_copy));
+        // Alas, not much we can do with an `OwnRef<…dyn FnOnce()>` besides dropping it.
+        drop(o);
+        assert!(dropped);
+    }
+    {
+        let mut dropped = false;
+        let not_copy = ::scopeguard::guard((), |()| dropped = true);
+        let o: OwnRef<'_, dyn FnOwn<(), Ret = ()>> = own_ref!(|| drop(not_copy));
+        o.call_ownref_0();
+        assert!(dropped);
     }
     {
         let s = String::from("not copy");
-        let o: OwnRef<'_, dyn Send + Unpin + crate::FnOwn<(), Ret = String>> = own_ref!(|| s);
+        let o: OwnRef<'_, dyn Send + Unpin + crate::FnOwn<(), Ret = String>> =
+            own_ref!(|| s)
+        ;
         let s: String = o.call_ownref_0();
         assert_eq!(s, "not copy");
+    }
+    {
+        // array to ensure type unification.
+        let [any_0, any_1]: [OwnRef<'_, dyn Send + ::core::any::Any>; 2] = [
+            own_ref!(42),
+            own_ref!(String::from("…")),
+        ];
+        let anys = (any_0, any_1);
+        let x: &'_ i32 =
+            anys.0.downcast_ref::<i32>().unwrap()
+        ;
+        assert_eq!(*x, 42);
+        let s: OwnRef<'_, String> =
+            anys.1.downcast::<String>().unwrap_or_else(|_| panic!())
+        ;
+        assert_eq!(*s, "…");
     }
     {
         let (storage, storage2, storage3) = &mut slots();
@@ -143,7 +172,7 @@ fn robust_way()
 #[cfg(doctest)]
 #[apply(compile_fail!)]
 fn guard_against_covariance_if_drop_flags() {
-    let storage = pinned_slot!();
+    let storage = pin::slot!();
     struct PrintOnDrop<'r>(&'r str);
     impl Drop for PrintOnDrop<'_> {
         fn drop(&mut self) {
