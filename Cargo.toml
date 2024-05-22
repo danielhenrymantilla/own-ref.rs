@@ -5,6 +5,9 @@ edition = "2021"
 rust-version = "1.68.0"  # when disabling the `offset_of` feature.
 # Still, the _recommended_ Rust version is ≥ 1.79.0
 
+description = "&own references with ergonomic macro construction"
+license-file = "Cargo.toml"
+
 [lib]
 path = "src/_lib.rs"
 
