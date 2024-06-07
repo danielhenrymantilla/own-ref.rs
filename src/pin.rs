@@ -151,9 +151,9 @@
 //!
 //!       - To speak in more concrete implementation-detail-exposing terms, a
 //!         <code>[Slot\<T\>][Slot]</code> is just a
-//!         <code>[ManuallyDrop]\<T\></code> wearing a fancy _negligee_.
+//!         <code>[MaybeUninit]\<T\></code> wearing a fancy _negligee_.
 //!
-//!         So, much like <code>[ManuallyDrop]\<T\></code>, it is itself
+//!         So, much like <code>[MaybeUninit]\<T\></code>, it is itself
 //!         completely unaware and oblivious of whether there is an actually
 //!         initialized or active `T` instance in it, so the whole thing is just
 //!         ignored, and it itself acts simply as a sheer bag of bytes.
@@ -287,6 +287,7 @@
 //!     /* spin-looping until the spawned thread is done with `Example`. */
 //!     ```
 //!
+//! [MaybeUninit]: ::core::mem::MaybeUninit
 
 use super::*;
 use ::core::marker::PhantomPinned;
@@ -449,6 +450,16 @@ impl<T> ManualOption<T> {
             //     insofar if the `OwnRef` is indeed dropped, then the `is_some`
             //     flag is cleared so that our `ManualOption<T>` do nothing,
             //     thence acting like a `ManuallyDrop<T>`.
+            //   - and last but not least (this one is subtle!), the resulting
+            //     `OwnRef<…T…>` smart pointer is invariant over `T`, which is
+            //     important in this scenario given that there is still a
+            //     possible "`&mut` pattern" with this:
+            //      1. put a `T<'big>` in a `ManualOption`;
+            //      2. Create this `OwnRef`;
+            //      3. If covariant, use the `OwnRef` to put a `T<'smol>` in "it"
+            //         (both the `OwnRef`, and, effectively, the `ManualOption`).
+            //      4. `mem::forget()` the `OwnRef`, so that ownership of `T` goes,
+            //         conceptually, back to the `ManualOption` 😬
             let own_ref = OwnRef::from_raw(
                 // We have made sure to keep provenance over all of `*self`,
                 // so that the resulting pointer be still allowed to,
@@ -471,7 +482,7 @@ impl<T> ManualOption<T> {
     }
 }
 
-impl<'slot, T> OwnRef<'slot, T, DropFlags::Yes> {
+impl<T> OwnRef<'_, T, DropFlags::Yes> {
     /// Same as [`OwnRef::with()`], but for the `value` being `Pin`ned.
     ///
     /// Uses [runtime drop flags][self] to guard against improper memory leakage,

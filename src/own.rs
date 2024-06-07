@@ -1,8 +1,14 @@
 #[cfg(doc)]
 use crate::pin::DropFlags;
 
-use super::*;
-use ::core::mem::ManuallyDrop;
+use {
+    ::core::{
+        mem::ManuallyDrop,
+    },
+    super::{
+        *,
+    },
+};
 
 mod impls;
 
@@ -211,7 +217,9 @@ impl<'slot, T> OwnRef<'slot, T> {
 ///     demo(own_ref!(|| drop(captured))); // 👈 inlined usage!
 ///     ```
 ///
-///   - or in small-ish scopes (using Rust ≥ 1.79.0 is then recommended):
+/// [1.79.0]: https://releases.rs/docs/1.79.0/
+///
+///   - or in small-ish scopes (using Rust ≥ [1.79.0] is then recommended):
 ///
 ///     ```rust
 ///     use ::own_ref::prelude::*;
@@ -364,12 +372,12 @@ impl<'slot, T> OwnRef<'slot, T> {
         unsafe {
             // Safety: mainly inherited from the caller's narrow contract.
             // Notice `D = DropFlags::No`
-            Self::from_raw(r, [])
+            Self::from_raw(<*mut _>::cast(r), [])
         }
     }
 }
 
-impl<'slot, T> OwnRef<'slot, T> {
+impl<T> OwnRef<'_, T> {
     /// Simple, albeit limited, [`OwnRef`] constructor, through a scoped API.
     ///
     /// Using [`own_ref!`] will, most of the time, result in a more flexible and
@@ -421,7 +429,7 @@ impl<'slot, T : ?Sized, D> OwnRef<'slot, T, D> {
     pub
     unsafe
     fn from_raw(
-        ptr: *mut ManuallyDrop<T>,
+        ptr: *mut T,
         _you_can_use_this_to_bound_the_lifetime: [&'slot (); 0],
     ) -> OwnRef<'slot, T, D>
     {
@@ -466,7 +474,7 @@ impl<'slot, T : ?Sized, D> OwnRef<'slot, T, D> {
     pub
     fn into_raw(
         self: OwnRef<'slot, T, D>,
-    ) -> (*mut ManuallyDrop<T>, [&'slot (); 0])
+    ) -> (*mut T, [&'slot (); 0])
     {
         (
             unsafe {

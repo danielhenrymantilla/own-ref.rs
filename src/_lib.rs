@@ -1,5 +1,6 @@
 // TODO: main crate docs.
 #![warn(unsafe_op_in_unsafe_fn)]
+#![allow(unused_braces)]
 
 #[macro_use]
 extern crate extension_traits;

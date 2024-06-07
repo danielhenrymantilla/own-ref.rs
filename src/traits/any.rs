@@ -51,7 +51,7 @@ use crate::OwnRef;
             Ok(unsafe {
                 // Safety: same layout of thin pointers,
                 // and `TypeId`s have just been checked for equality.
-                OwnRef::from_raw(ptr as *mut ::core::mem::ManuallyDrop<U>, lt)
+                OwnRef::from_raw(ptr.cast::<U>(), lt)
             })
         }
     }

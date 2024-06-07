@@ -126,9 +126,11 @@ fn slot<T>()
 /// # [a, b, c].iter_mut().for_each(|s| _ = s.holding(()));
 /// ```
 ///
-/// For instance, prior to Rust 1.79.0, the "trailing temporaries" of
+/// For instance, prior to Rust [1.79.0], the "trailing temporaries" of
 /// `if { … } else { … }` and `match { =>` branches, for instance, would not get
 /// lifetime-extended to the parent scope.
+///
+/// [1.79.0]: https://releases.rs/docs/1.79.0/
 ///
 /// This, in turn, used to require multiple [`slots()`] quite often:
 ///
@@ -153,7 +155,9 @@ fn slot<T>()
 ///
 ///   - See [`FnOwn`].
 ///
-/// With Rust ≥ 1.79.0, the previous snippet can be simplified down to:
+/// With Rust ≥ [1.79.0], the previous snippet can be simplified down to:
+///
+/// [1.79.0]: https://releases.rs/docs/1.79.0/
 ///
 /// ```rust
 /// use ::own_ref::{prelude::*, unsize};
@@ -219,9 +223,7 @@ impl<T> MU<T> {
     {
         let r: &'slot mut T = self.write(value);
         unsafe {
-            OwnRef::from_raw(
-                <*mut T>::cast::<MD<T>>(r), [],
-            )
+            OwnRef::from_raw(r, [])
         }
     }
 }
