@@ -4,17 +4,21 @@ Rust is notorious for its pervasive and ubiquitous `T`, `&mut T`, `&T` triptic s
 
   - In turn, this also leads to traits themselves embodying this paradigm too:
 
-    ```rs
+    ```rust
+    # r#"
     // an Fn is also FnMut
           Fn     :   FnMut   :     FnOnce
     //            an FnMut is also FnOnce
+    # "#
     ```
 
     Which stems from:
 
-    ```rs
+    ```rust
+    # r#"
     // &self  ← &mut self ←  self
           Fn  ⊆   FnMut   ⊆  FnOnce
+    # "#
     ```
 
       - (this inversion of the flow ought to be reminiscent, to the astute reader, of the contravariance in function arg position (here, method receiver), even if we cannot talk of subtyping w.r.t. `mut self` _vs._ `&mut self`.)
@@ -36,8 +40,10 @@ Also, many people here conflate ownership with the property of being `: 'static`
 
 Indeed, the converse is kind of right: when you have a `&T` or `&mut T` borrow, these are almost never long-lived enough, since having a long-lived borrow kind of defeats the point of having a borrow altogether. For instance, you will very rarely see a function expecting _exactly_ a `&'static [u8]`: they will more often take any `&[u8]`.
 
-```rs
+```rust
+# r#"
 &'short [mut] Thing :! 'static
+# "#
 ```
 
 But now consider the following types:
@@ -56,7 +62,8 @@ What can we say about them?
 
  1. A `Box<dyn 'short + Debug>` boils down to the same reasoning as with the `Box<&'short str>`, except for not knowing exactly _what_ is in the box: it could be a `&'short str`, for instance, or actually a fully `: 'static` type, such as `i32`, or a combination of these:
 
-    ```rs
+    ```rust
+    # r#"
     Box<&'short str> = Box<impl 'short + Debug>
      can be coërced to Box<dyn  'short + Debug>
 
@@ -65,6 +72,8 @@ What can we say about them?
 
     Box<(String, i32)> = Box<impl 'short + Debug>
        can be coërced to Box<dyn  'short + Debug>
+
+    # "#
     ```
 
     (for that last example, a `(String, i32)` is usable forever, _i.e._, it is `: UsableFor<'forever>`, _a fortiori_ it is usable for any `'short`er duration `: UsableFor<'short>`, _i.e._, `= impl 'short + …`.)
@@ -77,7 +86,8 @@ What can we say about them?
 
     But there is something you can do with the general category of `&mut …` that you cannot do with `&'static mut …`s: you can re-borrow a `&'short mut T` kind of borrow down into a `&'shorter mut T` borrow, and go back to using the original `&'short mut T` once `'shorter` has ended,
 
-    ```rs
+    ```rust
+    # r#"
     let short: &mut i32 = &mut 42;
     {
         let shorter: &mut i32 = short; // a `'shorter` reborrow!
@@ -85,38 +95,43 @@ What can we say about them?
         stuff(shorter);
     }
     stuff(short) // OK
+    # "#
     ```
 
     But the moment you constrain `'short` to be `'forever = 'static`, as well as `&'shorter = 'static` (in order to remain using `&'static mut …` types exclusively), then it turns out you don't really have reborrowing semantics anymore, since now we are requiring that the `'shorter` reborrow last for as long as the original `'short` borrow: if they span the same, then the original `'short` borrow never gets to be re-usable again:
 
-    ```rs
-       type R = &'static mut i32;
+    ```rust
+    # r#"
+        type R = &'static mut i32;
 
-    let short: R = Box::leak(Box::new(42)); // OK
-    {
-        let shorter: R = short; // is this a reborrow?
-        // …
-        stuff(shorter);
-    }
-    stuff(short); // Error! "Use of moved value" or "value
-                  // used while still borrowed"!
+        let short: R = Box::leak(Box::new(42)); // OK
+        {
+            let shorter: R = short; // is this a reborrow?
+            // …
+            stuff(shorter);
+        }
+        stuff(short); // Error! "Use of moved value" or "value
+                      // used while still borrowed"!
+    # "#
     ```
 
     So, since `&mut …` is not `Copy`, and since we don't get actual reborrowing semantics because of the "every lifetime mut be `'static`" constraint, in practice it means we are back to good old move/"single owner" semantics, _i.e._, to ownership.
 
     That is, if we replaced the `&'static mut i32`s above with `Box<i32>` (by removing the `Box::leak`), we wouldn't end up with code any more lenient:
 
-    ```rs
-    // type R = &'static mut i32;
-       type R = Box<i32>;
+    ```rust
+    # r#"
+     // type R = &'static mut i32;
+        type R = Box<i32>;
 
-    let short: R = Box::new(42); // OK
-    {
-        let shorter: R = short; // move!
-        // …
-        stuff(shorter);
-    }
-    stuff(short); // Error! "Use of moved value".
+        let short: R = Box::new(42); // OK
+        {
+            let shorter: R = short; // move!
+            // …
+            stuff(shorter);
+        }
+        stuff(short); // Error! "Use of moved value".
+    # "#
     ```
 
 I hope all these examples help shatter a bit the simplified "`: 'static` = ownership ≠ borrowing" mindset.
@@ -129,16 +144,20 @@ I hope all these examples help shatter a bit the simplified "`: 'static` = owner
 
 Now, let's go back to the `Box<T>` example, but this time remembering that a `Box` may involve a non-global allocator, and, at least conceptually, that said allocator may be non-`: 'static`:
 
-```rs
+```rust
+# r#"
 Box<T, A>
 where
     A : Allocator,
     A : ?'static, // <- pseudo-code
+
+# "#
 ```
 
 And let's consider a special form of `Allocator`: a simple one-shot allocation "arena".
 
-```rs
+```rust
+# r#"
 struct Slot<T>(Option<T>);
 
 // pseudo-code
@@ -158,11 +177,13 @@ impl<T> Slot<T> {
         // (inside of `*self`), so its reclamation goes above our head, literally.
     }
 }
+# "#
 ```
 
 or, for future reference, let's consider a `Slot` behind a `&mut` borrow:
 
-```rs
+```rust
+# r#"
 type OutSlot<'storage, T> = &'storage mut Slot<T>;
 
 // pseudo-code
@@ -172,16 +193,19 @@ impl OutSlot<'_, T> {
         self.0.insert(value)
     }
 }
+# "#
 ```
 
 And now think of the type `Box<T, OutSlot<'short, T>>` (_each_ of these `Box`es will be using their own, dedicated, single-item/one-shot allocator, but all of them are `'short`-lived one way or another).
 
-```rs
+```rust
+# r#"
 'local: {
     let mut slot = Slot(None);
     let b = Box::new_in(42, &mut slot);
     …
 } // <- b cannot be used beyond this point
+# "#
 ```
 
 Now our `b` instance is some owning `Box`, only, one which isn't really living in the heap, but rather, something which is using _borrowed_ `'local` storage.
@@ -192,8 +216,10 @@ In fact, we may be tempted to talk of "stack storage" rather than "local storage
 
 We could thus define:
 
-```rs
+```rust
+# r#"
 type StackBox<'local, T> = Box<T, &'local mut Slot<T>>;
+# "#
 ```
 
 And in fact, modulo reïnventing the whole API, rather than piggybacking off `Box`'s, this is exactly what the [`::stackbox`](https://docs.rs/stackbox) crate is all about!
@@ -210,22 +236,26 @@ But for three rather important observations:
 
   - ### Helper temporary storage elision
 
-    what if the language were to offer some ergonomic way to define a sufficiently long-lived vacant `Slot<T>`? And automatically using it when attempting a `StackBox` construction?
+    What if the language were to offer some ergonomic way to define a sufficiently long-lived vacant `Slot<T>`? And automatically using it when attempting a `StackBox` construction?
 
-    ```rs
+    ```rust
+    # r#"
     'local: {
         let b = StackBox::new_in(42, auto_slot!('local));
         …
     } // <- b cannot be used beyond this point
+    # "#
     ```
 
     or even just:
 
-    ```rs
+    ```rust
+    # r#"
     {
         let b = stackbox!(42);
         …
     } // <- b cannot be used beyond this point
+    # "#
     ```
 
   - ### A fully `::core`/no`::alloc`-compatible abstraction
@@ -234,13 +264,16 @@ But for three rather important observations:
 
     First, we need some "inlined"/local backing storage:
 
-    ```rs
+    ```rust
+    # r#"
     let mut slot: Slot<T> = Slot(MaybeUninit::uninit()); // no magic
+    # "#
     ```
 
     And then:
 
-    ```rs
+    ```rust
+    # r#"
     let boxed: Box<T, &mut Slot<T>> =
         Box::new_in(value, &mut slot)
     ;
@@ -255,6 +288,7 @@ But for three rather important observations:
             },
         )
     ;
+    # "#
     ```
 
     As you can see, no magic `Box` or heap allocation or memory management shenanigans whatsoever are involved. Just a simply 3-step logic:
@@ -262,10 +296,6 @@ But for three rather important observations:
      1. `MaybeUninit::uninit()` to reserve the backing space/memory/storage wherein the `value` shall be held; any local variable can be holding it (meaning the memory itself shall be local as well, called the `slot`);
 
      1. `MaybeUninit::write()` to write the value therein: we have our `impl 'slot + DerefMut<Target = T>`!
-
-        > HACK HACK HACK
-
-        Eventually:
 
      1. `<*mut T>::drop_in_place()`, eventually, so as to make sure the written `T` is properly, itself, "reclaimed". Meaning, that its own drop glue is run / that the resources it itself owns (_e.g._, the heap-allocated `str` of a `String`) are properly reclaimed.
 
@@ -277,20 +307,23 @@ But for three rather important observations:
 
      1. Have you ever wanted to write:
 
-        ```rs
+        ```rust
+        # r#"
         trait MyDynSafeApi {
             fn method(&self, f: impl FnOnce());
         }
 
         /// Assert `dyn`-safe.
         impl dyn MyDynSafeApi {} // Error, method cannot be generic!
+        # "#
         ```
 
         which runs into `dyn`-safety issues?
 
      1. And then you decide to replace `impl` with `dyn` to solve it, only to then be running into:
 
-        ```rs
+        ```rust
+        # r#"
         trait MyDynSafeApi {
             // Error, `dyn FnOnce()` is not `Sized`!
             fn method(&self, f: dyn FnOnce());
@@ -298,6 +331,7 @@ But for three rather important observations:
 
         /// Assert `dyn`-safe.
         impl dyn MyDynSafeApi {}
+        # "#
         ```
 
      1. At that point, rustaceans have two options:
@@ -308,7 +342,8 @@ But for three rather important observations:
 
     But assuming callers had access to these very ergonomic, and `::core`/no`::alloc`-compatible `StackBox`es, we could have:
 
-    ```rs
+    ```rust
+    # r#"
     trait MyDynSafeApi {
         fn method(&self, f: StackBox<'_, dyn FnOnce()>);
     }
@@ -323,6 +358,7 @@ But for three rather important observations:
             drop(guard); // free the mutex on the first call
         }))
     }
+    # "#
     ```
 
 And this last `dyn` example only starts to scratch the surface of all the things you can do w.r.t. "owned `dyn Trait`s" once you have access to this "`StackBox`".
