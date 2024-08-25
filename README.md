@@ -34,7 +34,7 @@ Rust's type system is notorious for putting types in one of the following three 
 
 Also, many people here conflate ownership with the property of being `: 'static`, _i.e._, of being `: UsableFor<'forever>`, sort to speak.
 
-Indeed, the "contraposée" is kind of right: if you have a `&T` or `&mut T` borrow, these are almost never long-lived enough, since having a long-lived borrow kind of defeats the point of having a borrow altogether. For instance, you will very rarely see a function expecting _exactly_ a `&'static str`: they will more often take any `&str`.
+Indeed, the converse is kind of right: when you have a `&T` or `&mut T` borrow, these are almost never long-lived enough, since having a long-lived borrow kind of defeats the point of having a borrow altogether. For instance, you will very rarely see a function expecting _exactly_ a `&'static [u8]`: they will more often take any `&[u8]`.
 
 ```rs
 &'short [mut] Thing :! 'static
@@ -54,17 +54,17 @@ What can we say about them?
 
     So, despite its `'short`-lived-ness (something very much _not_ `: 'static`) a `Box<&'short str>` is very much an owned type.
 
- 1. A `Box<dyn 'short + Debug>` is very much the same as a `Box<&'short str>`, except for not knowing exactly _what_ is in the box: it could be a `&'short String`, for instance, or actually a fully `: 'static` `i32`, or a combination of these:
+ 1. A `Box<dyn 'short + Debug>` boils down to the same reasoning as with the `Box<&'short str>`, except for not knowing exactly _what_ is in the box: it could be a `&'short str`, for instance, or actually a fully `: 'static` type, such as `i32`, or a combination of these:
 
     ```rs
     Box<&'short str> = Box<impl 'short + Debug>
-      can be coërced to Box<dyn 'short + Debug>
+     can be coërced to Box<dyn  'short + Debug>
 
     Box<(&'short str, i32)> = Box<impl 'short + Debug>
-             can be coërced to Box<dyn 'short + Debug>
+            can be coërced to Box<dyn  'short + Debug>
 
     Box<(String, i32)> = Box<impl 'short + Debug>
-        can be coërced to Box<dyn 'short + Debug>
+       can be coërced to Box<dyn  'short + Debug>
     ```
 
     (for that last example, a `(String, i32)` is usable forever, _i.e._, it is `: UsableFor<'forever>`, _a fortiori_ it is usable for any `'short`er duration `: UsableFor<'short>`, _i.e._, `= impl 'short + …`.)
@@ -87,10 +87,10 @@ What can we say about them?
     stuff(short) // OK
     ```
 
-    But the moment you constrain `'short` to be `'forever = 'static`, as well as `&'shorter = 'static` (in order to remain using a `&'static mut …` type), then it turns out you don't really have reborrowing semantics anymore, since now we're requiring that the `'shorter` reborrow last for as long as the original `'short` borrow: if they span the same, then the original `'short` borrow never gets to be re-usable again:
+    But the moment you constrain `'short` to be `'forever = 'static`, as well as `&'shorter = 'static` (in order to remain using `&'static mut …` types exclusively), then it turns out you don't really have reborrowing semantics anymore, since now we are requiring that the `'shorter` reborrow last for as long as the original `'short` borrow: if they span the same, then the original `'short` borrow never gets to be re-usable again:
 
     ```rs
-    type R = &'static mut i32;
+       type R = &'static mut i32;
 
     let short: R = Box::leak(Box::new(42)); // OK
     {
@@ -104,10 +104,12 @@ What can we say about them?
 
     So, since `&mut …` is not `Copy`, and since we don't get actual reborrowing semantics because of the "every lifetime mut be `'static`" constraint, in practice it means we are back to good old move/"single owner" semantics, _i.e._, to ownership.
 
-    That is, if we removed the `Box::leak` above, we wouldn't be ending up with code any more lenient:
+    That is, if we replaced the `&'static mut i32`s above with `Box<i32>` (by removing the `Box::leak`), we wouldn't end up with code any more lenient:
 
     ```rs
-    type R = Box<i32>;
+    // type R = &'static mut i32;
+       type R = Box<i32>;
+
     let short: R = Box::new(42); // OK
     {
         let shorter: R = short; // move!
@@ -125,32 +127,35 @@ I hope all these examples help shatter a bit the simplified "`: 'static` = owner
 
 ---
 
-Now, let's go back to the `Box<T>` example, but this time remembering that a `Box` may involve a non-global allocator, and, at least conceptually, said allocator may be non-`: 'static`:
+Now, let's go back to the `Box<T>` example, but this time remembering that a `Box` may involve a non-global allocator, and, at least conceptually, that said allocator may be non-`: 'static`:
 
 ```rs
-Box<T, A : Allocator :! 'static>
+Box<T, A>
+where
+    A : Allocator,
+    A : ?'static, // <- pseudo-code
 ```
 
-Let's consider a special form of `Allocator`: a simple one-shot allocation "arena":
+And let's consider a special form of `Allocator`: a simple one-shot allocation "arena".
 
 ```rs
 struct Slot<T>(Option<T>);
 
 // pseudo-code
 impl<T> Slot<T> {
-    pub
     fn alloc<'slot>(&'slot mut self, value: T)
       -> ptr::NonNull<T>
     {
-        assert!(self.0.is_none());
+        assert!(self.0.is_none(), "can only alloc at most one item!");
         let r: &'slot mut T = self.0.insert(value);
         r.into()
     }
 
-    pub
-    fn deälloc(&mut self, _: ptr::NonNull<T>)
+    fn deälloc(&mut self, _ptr: ptr::NonNull<T>)
     {
-        // nothing to do, the "allocated memory" remains within us.
+        // nothing needed, the backing memory of that `*_ptr` is in no
+        // managed heap or memory-map, it's just inside of us
+        // (inside of `*self`), so its reclamation goes above our head, literally.
     }
 }
 ```
@@ -160,15 +165,16 @@ or, for future reference, let's consider a `Slot` behind a `&mut` borrow:
 ```rs
 type OutSlot<'storage, T> = &'storage mut Slot<T>;
 
-// pseudoer-code
+// pseudo-code
 impl OutSlot<'_, T> {
-    pub fn alloc(&mut self, value: T) -> &mut T {
+    fn alloc(&mut self, value: T) -> &mut T {
+        assert!(self.0.is_none(), "can only alloc at most one item!");
         self.0.insert(value)
     }
 }
 ```
 
-And now think of the type `Box<T, OutSlot<'short, T>>` (think _each_ of these `Box`es will be using their own, dedicated, single-item/one-shot allocator, but all of them are `'short`-lived one way or another).
+And now think of the type `Box<T, OutSlot<'short, T>>` (_each_ of these `Box`es will be using their own, dedicated, single-item/one-shot allocator, but all of them are `'short`-lived one way or another).
 
 ```rs
 'local: {
@@ -178,11 +184,13 @@ And now think of the type `Box<T, OutSlot<'short, T>>` (think _each_ of these `B
 } // <- b cannot be used beyond this point
 ```
 
-Now our `b` instance is some owner `Box`, only, one which isn't really living in the heap, but rather, something which is using _borrowed_ `'local` storage.
+Now our `b` instance is some owning `Box`, only, one which isn't really living in the heap, but rather, something which is using _borrowed_ `'local` storage.
 
-In fact, we may be tempted to talk of "stack storage" rather than "local storage", since, traditionally, the local storage of a `fn` lives in the stack (even though this assumption breaks when dealing with `Coroutine`s/`Generator`s which `yield`, such as `Future`s which `.await`, as in the body of an `async fn` or an `async {}` block).
+In fact, we may be tempted to talk of "stack storage" rather than "local storage", since, traditionally, the local storage of a `fn` lives in the stack[^stack].
 
-We could then define:
+[^stack]: even though this assumption breaks when dealing with `Coroutine`s/`Generator`s which `yield`, such as `Future`s which `.await`, as in the body of an `async fn` or an `async {}` block: the local storage living through `yield/.await` points is then stored within the state machine itself, which may very well have been heap-allocated while polled.
+
+We could thus define:
 
 ```rs
 type StackBox<'local, T> = Box<T, &'local mut Slot<T>>;
@@ -190,7 +198,7 @@ type StackBox<'local, T> = Box<T, &'local mut Slot<T>>;
 
 And in fact, modulo reïnventing the whole API, rather than piggybacking off `Box`'s, this is exactly what the [`::stackbox`](https://docs.rs/stackbox) crate is all about!
 
-  - Note that whilst I have been using `Option<T>` to very naïvely and simply implement the `Slot<T>` logic, the reality is that precisely thanks to the ownership semantics of a `Box`, it should be possible to skip the `Option`'s drop-tagging discriminant, and be using an unchecked discriminant-less `Option<T>`: a `MaybeUninit<T>`.
+  - Note that whilst I have been using `Option<T>` to very naïvely and simply implement the `Slot<T>` logic, the reality is that precisely thanks to the ownership semantics of a `Box`, it is possible to skip the `Option`'s drop-tagging discriminant, and to be using an unchecked discriminant-less `Option<T>`: a `MaybeUninit<T>`.
 
 ---
 
@@ -202,20 +210,11 @@ But for three rather important observations:
 
   - ### Helper temporary storage elision
 
-    what if the language were to offer some ergonomic manner of defining a sufficiently long-lived vacant `Slot<T>`? And automatically using it when attempting a `StackBox` construction?
+    what if the language were to offer some ergonomic way to define a sufficiently long-lived vacant `Slot<T>`? And automatically using it when attempting a `StackBox` construction?
 
     ```rs
     'local: {
-        let b = StackBox::new_in(42, magic!('local));
-        …
-    } // <- b cannot be used beyond this point
-    ```
-
-    or even just:
-
-    ```rs
-    'local: {
-        let b = stackbox!(42);
+        let b = StackBox::new_in(42, auto_slot!('local));
         …
     } // <- b cannot be used beyond this point
     ```
@@ -231,7 +230,120 @@ But for three rather important observations:
 
   - ### A fully `::core`/no`::alloc`-compatible abstraction
 
+    Now focus on what we have needed to construct this. Say we have some type `T`, and some `value: T` (you can consider `T = String`, even if `String`, in and of itself, does need `alloc`).
+
+    First, we need some "inlined"/local backing storage:
+
+    ```rs
+    let mut slot: Slot<T> = Slot(MaybeUninit::uninit()); // no magic
+    ```
+
+    And then:
+
+    ```rs
+    let boxed: Box<T, &mut Slot<T>> =
+        Box::new_in(value, &mut slot)
+    ;
+    // equivalent to:
+    let ref_: &mut T = slot.0.write(value);
+    let boxed: impl 'slot + DerefMut<Target = T> =
+        ::scopeguard::guard(
+            // Owns and DerefMuts to:
+            ref_,
+            |ref_: &mut T| /* on drop, do */ unsafe {
+                <*mut T>::drop_in_place(r)
+            },
+        )
+    ;
+    ```
+
+    As you can see, no magic `Box` or heap allocation or memory management shenanigans whatsoever are involved. Just a simply 3-step logic:
+
+     1. `MaybeUninit::uninit()` to reserve the backing space/memory/storage wherein the `value` shall be held; any local variable can be holding it (meaning the memory itself shall be local as well, called the `slot`);
+
+     1. `MaybeUninit::write()` to write the value therein: we have our `impl 'slot + DerefMut<Target = T>`!
+
+        > HACK HACK HACK
+
+        Eventually:
+
+     1. `<*mut T>::drop_in_place()`, eventually, so as to make sure the written `T` is properly, itself, "reclaimed". Meaning, that its own drop glue is run / that the resources it itself owns (_e.g._, the heap-allocated `str` of a `String`) are properly reclaimed.
+
+        This can simply happen as part of the extra `Drop` glue of our `impl DerefMut…`: we got our `StackBox`!
+
+    And _voilà_!
+
   - ### Ownership + indirection: `::core`/no`::alloc` _owned_ `dyn Trait`s
+
+     1. Have you ever wanted to write:
+
+        ```rs
+        trait MyDynSafeApi {
+            fn method(&self, f: impl FnOnce());
+        }
+
+        /// Assert `dyn`-safe.
+        impl dyn MyDynSafeApi {} // Error, method cannot be generic!
+        ```
+
+        which runs into `dyn`-safety issues?
+
+     1. And then you decide to replace `impl` with `dyn` to solve it, only to then be running into:
+
+        ```rs
+        trait MyDynSafeApi {
+            // Error, `dyn FnOnce()` is not `Sized`!
+            fn method(&self, f: dyn FnOnce());
+        }
+
+        /// Assert `dyn`-safe.
+        impl dyn MyDynSafeApi {}
+        ```
+
+     1. At that point, rustaceans have two options:
+
+          - either they involve the _heap_, which is so absurd when you come to think of it, and straight up impossible when you are in a `::core`/no`::alloc` context;
+
+          - or you give up the move semantics and require `&mut dyn FnMut()`. You can always "get ownership back" by using `Option` + `.take()` (which means that misusage of the desired move semantics, now, rather than leading to a compile error, causes panics!)
+
+    But assuming callers had access to these very ergonomic, and `::core`/no`::alloc`-compatible `StackBox`es, we could have:
+
+    ```rs
+    trait MyDynSafeApi {
+        fn method(&self, f: StackBox<'_, dyn FnOnce()>);
+    }
+
+    /// Assert `dyn`-safe.
+    impl dyn MyDynSafeApi {} // ✅
+
+    fn demo(it: &dyn MyDynSafeApi, mutex: &Mutex<…>) {
+        let mut guard = mutex.lock();
+        it.method(stackbox!(move || {
+            stuff(&mut *guard);
+            drop(guard); // free the mutex on the first call
+        }))
+    }
+    ```
+
+And this last `dyn` example only starts to scratch the surface of all the things you can do w.r.t. "owned `dyn Trait`s" once you have access to this "`StackBox`".
+
+---
+
+All in all, we have:
+
+  - a genuinely useful type to handle heapless _owned_ `dyn Trait`s —among other things that like to be used behind indirection, such as `Sized` but _huuge_ arrays or structs, or whatnot—,
+
+  - and with an abstraction which, at the mere cost of some language-blessed sugar to take care of the lifetime of the (local) backing memory (the `slot`s), does not have to involve heap shenanigans.
+
+And, in fact, when we paper a bit over the lifetime of the local backing storage, what we have, at the end of the day, is: _raw ownership through indirection_.
+
+If we think of `&` as the (by) _reference_ operator, _i.e._, the (borrowing) operator of indirection, then, what we have could be called an _owning reference_.
+
+This could then become a language-blessed construct, becoming, w.r.t. the Rust trifecta of `T`, `&mut T`, `&T`, the by-reference-version of `T : ?Sized`:
+
+> **`&own T`**, the owning reference.
+
+More precisely, `&'slot own T`, wherein the backing storage of that `T` is `&'slot mut` borrowed, but offering fully owned access to the `T` pointee (_e.g._, the possibility to drop the `T` at any point, or, when `T : Sized`, to _move_ the value out of it).
 
 <details class="custom"><summary><span class="summary-box"><span>Click to show</span></span></summary>
 
