@@ -1,6 +1,7 @@
 #[cfg(doc)]
 use crate::pin::DropFlags;
 
+#[allow(unused_braces)]
 use {
     ::core::{
         mem::ManuallyDrop,

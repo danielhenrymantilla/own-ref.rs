@@ -1,3 +1,4 @@
+[workspace]
 [package]
 name = "own-ref"
 version = "0.1.0-alpha"
@@ -5,8 +6,13 @@ edition = "2021"
 rust-version = "1.68.0"  # when disabling the `offset_of` feature.
 # Still, the _recommended_ Rust version is ≥ 1.79.0
 
+license = "Zlib OR MIT OR Apache-2.0"
+repository = "https://github.com/danielhenrymantilla/own-ref.rs"
+documentation = "https://docs.rs/own-ref"
+readme = "README.md"
+
 description = "&own references with ergonomic macro construction"
-license-file = "Cargo.toml"
+keywords = ["own", "move", "dyn", "unsized", "stackbox"]
 
 [lib]
 path = "src/_lib.rs"
@@ -18,6 +24,9 @@ default = [
 # Performs a sanity check using a `const` assertion.
 offset_of = []  # Requires Rust ≥ 1.77.
 
+better-docs = [ # allowed to break MSRV
+]
+
 [dependencies]
 extension-traits.version = "1.0.1"
 paste.version = "1.0.15"
@@ -25,3 +34,11 @@ paste.version = "1.0.15"
 [dev-dependencies]
 macro_rules_attribute.version = "0.1.3"
 scopeguard.version = "1.1.0"
+
+[package.metadata.docs.rs]
+features = [
+    "better-docs",
+]
+rustdoc-args = [
+    "--html-before-content", "fix-docsrs-li-details-summary.html",
+]

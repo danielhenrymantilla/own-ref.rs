@@ -1,4 +1,5 @@
-// TODO: main crate docs.
+#![doc = include_str!("../README.md")]
+
 #![warn(unsafe_op_in_unsafe_fn)]
 #![allow(unused_braces)]
 
