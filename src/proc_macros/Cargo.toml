@@ -1,0 +1,17 @@
+[lib]
+path = "mod.rs"
+proc-macro = true
+
+[package]
+name = "own-ref-proc_macros"
+version = "0.1.0-alpha"  # Keep in sync
+edition = "2021"
+rust-version = "1.68.0"
+
+[dependencies]
+proc-macro2.version = "1.0.86"
+quote.version = "1.0.37"
+syn.version = "2.0.76"
+syn.features = [
+    "full",
+]

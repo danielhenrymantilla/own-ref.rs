@@ -1,7 +1,11 @@
 [workspace]
+members = [
+    "src/proc_macros",
+]
+
 [package]
 name = "own-ref"
-version = "0.1.0-alpha"
+version = "0.1.0-alpha"  # Keep in sync
 edition = "2021"
 rust-version = "1.68.0"  # when disabling the `offset_of` feature.
 # Still, the _recommended_ Rust version is ≥ 1.79.0
@@ -30,6 +34,10 @@ better-docs = [ # allowed to break MSRV
 [dependencies]
 extension-traits.version = "1.0.1"
 paste.version = "1.0.15"
+
+[dependencies.own-ref-proc_macros]
+path = "src/proc_macros"
+version = "=0.1.0-alpha"  # Keep in sync
 
 [dev-dependencies]
 macro_rules_attribute.version = "0.1.3"
