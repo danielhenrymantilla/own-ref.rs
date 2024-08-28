@@ -25,7 +25,7 @@ Rust is notorious for its pervasive and ubiquitous `T`, `&mut T`, `&T` triptic s
 
 But `T`, `&mut T`, and `&T` are not the only types in these categories.
 
-pattern, mind shift // WTF did I mean there?
+pattern, mind shift // WTF did I mean here?
 
 Rust's type system is notorious for putting types in one of the following three boxes or categories:
 
@@ -38,7 +38,7 @@ Rust's type system is notorious for putting types in one of the following three 
 
 Also, many people here conflate ownership with the property of being `: 'static`, _i.e._, of being `: UsableFor<'forever>`, sort to speak.
 
-Indeed, the converse is kind of right: when you have a `&T` or `&mut T` borrow, these are almost never long-lived enough, since having a long-lived borrow kind of defeats the point of having a borrow altogether. For instance, you will very rarely see a function expecting _exactly_ a `&'static [u8]`: they will more often take any `&[u8]`.
+Indeed, the converse is kind of right: a `&T` or `&mut T` borrow is almost never long-lived, since having a long-lived borrow kind of defeats the point of having a borrow altogether. For instance, you will very rarely see a function expecting _exactly_ a `&'static [u8]`; they will more often take any `&[u8]`.
 
 ```rust
 # r#"
@@ -56,7 +56,7 @@ But now consider the following types:
 
 What can we say about them?
 
- 1. A `Box<&'short str>`, is basically a boxed borrow, so it could be perceived in the borrow category. But since it is `Box`ed, it cannot be `Copy`ed, and more generally, it will have a meaningful "destructor" / drop glue (that releasing the heap-allocated `Box` pointee), _i.e._, it has meaningful _ownership_.
+ 1. A `Box<&'short str>`, is basically a boxed borrow, so it could be perceived in the borrow category. But since it is `Box`ed, it cannot be `Copy`ed, and more generally, it will have a meaningful "destructor" / drop glue (one releasing the heap-allocated `Box` pointee), _i.e._, it has meaningful _ownership_.
 
     So, despite its `'short`-lived-ness (something very much _not_ `: 'static`) a `Box<&'short str>` is very much an owned type.
 
@@ -91,7 +91,7 @@ What can we say about them?
     let short: &mut i32 = &mut 42;
     {
         let shorter: &mut i32 = short; // a `'shorter` reborrow!
-        // …
+        …
         stuff(shorter);
     }
     stuff(short) // OK
@@ -107,7 +107,7 @@ What can we say about them?
         let short: R = Box::leak(Box::new(42)); // OK
         {
             let shorter: R = short; // is this a reborrow?
-            // …
+            …
             stuff(shorter);
         }
         stuff(short); // Error! "Use of moved value" or "value
@@ -117,7 +117,7 @@ What can we say about them?
 
     So, since `&mut …` is not `Copy`, and since we don't get actual reborrowing semantics because of the "every lifetime mut be `'static`" constraint, in practice it means we are back to good old move/"single owner" semantics, _i.e._, to ownership.
 
-    That is, if we replaced the `&'static mut i32`s above with `Box<i32>` (by removing the `Box::leak`), we wouldn't end up with code any more lenient:
+    That is, if we replaced the `&'static mut i32`s above with `Box<i32>` (by removing the `Box::leak`), we wouldn't end up with code any more restrictive nor lenient:
 
     ```rust
     # r#"
@@ -127,7 +127,7 @@ What can we say about them?
         let short: R = Box::new(42); // OK
         {
             let shorter: R = short; // move!
-            // …
+            …
             stuff(shorter);
         }
         stuff(short); // Error! "Use of moved value".
@@ -260,7 +260,7 @@ But for three rather important observations:
 
   - ### A fully `::core`/no`::alloc`-compatible abstraction
 
-    Now focus on what we have needed to construct this. Say we have some type `T`, and some `value: T` (you can consider `T = String`, even if `String`, in and of itself, does need `alloc`).
+    Now focus on what we have needed to construct this. Say we have some type `T`, and some `value: T` (you can consider `T = Box<str>`, even if `Box<str>`, in and of itself, does need `alloc`).
 
     First, we need some "inlined"/local backing storage:
 
@@ -297,7 +297,7 @@ But for three rather important observations:
 
      1. `MaybeUninit::write()` to write the value therein: we have our `impl 'slot + DerefMut<Target = T>`!
 
-     1. `<*mut T>::drop_in_place()`, eventually, so as to make sure the written `T` is properly, itself, "reclaimed". Meaning, that its own drop glue is run / that the resources it itself owns (_e.g._, the heap-allocated `str` of a `String`) are properly reclaimed.
+     1. `<*mut T>::drop_in_place()`, eventually, so as to make sure the written `T` is properly, itself, "reclaimed". Meaning, that its own drop glue is run / that the resources it itself owns (_e.g._, when `T = Box<str>`, the heap-allocated `str`) are properly reclaimed.
 
         This can simply happen as part of the extra `Drop` glue of our `impl DerefMut…`: we got our `StackBox`!
 
@@ -340,7 +340,7 @@ But for three rather important observations:
 
           - or you give up the move semantics and require `&mut dyn FnMut()`. You can always "get ownership back" by using `Option` + `.take()` (which means that misusage of the desired move semantics, now, rather than leading to a compile error, causes panics!)
 
-    But assuming callers had access to these very ergonomic, and `::core`/no`::alloc`-compatible `StackBox`es, we could have:
+    But assuming callers had access to this very ergonomic, and `::core`/no`::alloc`-compatible, `StackBox` abstraction, we could have:
 
     ```rust
     # r#"
@@ -351,7 +351,8 @@ But for three rather important observations:
     /// Assert `dyn`-safe.
     impl dyn MyDynSafeApi {} // ✅
 
-    fn demo(it: &dyn MyDynSafeApi, mutex: &Mutex<…>) {
+    fn example(it: &dyn MyDynSafeApi, mutex: &Mutex<…>)
+    {
         let mut guard = mutex.lock();
         it.method(stackbox!(move || {
             stuff(&mut *guard);
@@ -379,7 +380,7 @@ This could then become a language-blessed construct, becoming, w.r.t. the Rust t
 
 > **`&own T`**, the owning reference.
 
-More precisely, `&'slot own T`, wherein the backing storage of that `T` is `&'slot mut` borrowed, but offering fully owned access to the `T` pointee (_e.g._, the possibility to drop the `T` at any point, or, when `T : Sized`, to _move_ the value out of it).
+More precisely, `&'slot own T`, wherein the backing storage of that `T` is `&'slot mut` borrowed, but offering fully owned access to the `T` pointee (_e.g._, the possibility to drop the `T` at any point, or, when `T : Sized`, to even _move_ the value out of it).
 
 <details class="custom"><summary><span class="summary-box"><span>Click to show</span></span></summary>
 
