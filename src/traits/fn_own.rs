@@ -187,7 +187,7 @@ for
         unsafe {
             // SAFETY: we are indeed `ManuallyDrop`-wrapping beforehand.
             F::ඞdyn_call_ownref(
-                &mut *::core::mem::ManuallyDrop::new(self),
+                &mut **::core::mem::ManuallyDrop::new(self),
                 args,
             )
         }
