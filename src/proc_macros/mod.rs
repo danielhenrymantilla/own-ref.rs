@@ -30,7 +30,25 @@ fn dyn_self(
 ) -> TokenStream
 {
     dyn_self_impl(args.into(), input.into())
-     // .map(|ts| { println!("{ts}"); ts }) /* when debugging */
+        // .map(|ts| { println!("{ts}"); ts }) /* when debugging */
+        // .map(|ts| {
+        //     ::std::fs::write(
+        //         "/tmp/dyn_self.rs", ::prettyplease::unparse(&parse_quote!(#ts)),
+        //     ).unwrap();
+        //     quote!(
+        //         include!("/tmp/dyn_self.rs");
+        //     )
+        // })
+        .map_err(|mut err| {
+            // Prefix the compile error message(s) with `#[dyn_self]: `.
+            let mut errs = err.into_iter().map(|e| Error::new_spanned(
+                &e.to_compile_error(),
+                format!("#[dyn_self]: {e}"),
+            ));
+            err = errs.next().unwrap();
+            errs.for_each(|e| err.combine(e));
+            err
+        })
         .unwrap_or_else(Error::into_compile_error)
         .into()
 }
