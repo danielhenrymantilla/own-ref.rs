@@ -1,12 +1,26 @@
 use super::*;
 
+mod args;
+
 pub fn macro_(
     args: TokenStream2,
     input: TokenStream2,
 ) -> Result<TokenStream2>
 {
     let mut ret = quote!();
-    let _args: parse::Nothing = parse2(args)?;
+    let args::Args {
+        pub_: extension_trait_pub,
+        TraitName: ExtensionTraitName @ _,
+        rename,
+        ..
+    } = parse2(args).map_err(|mut err| {
+        err.combine(Error::new(
+            Span::mixed_site(),
+            r#"usage: `#[dyn_self(as <pub> <TraitName> [, rename = "<prefix>{}<suffix>"])]`"#,
+        ));
+        err
+    })?;
+    let extension_trait_method_renaming_logic = &rename.map_or_else(<_>::default, |r| r.pattern);
     let mut input: ItemTrait = parse2(input)?;
     let Trait @ _ = &input.ident;
     let (intro_generics, fwd_generics, where_clause) = &input.generics.split_for_impl();
@@ -55,8 +69,8 @@ pub fn macro_(
         // By now we must be dealing with an owned `self` method.
         let method = trait_fn;
         let method_name = &method.sig.ident;
-        // To be the same as `method` but for three things.
         let mut_self_method = {
+            // To be the same as `method` but for three things.
             let mut mut_self_method = method.clone();
             // 1. Make sure it is an unsafe fn.
             mut_self_method.sig.unsafety = parse_quote!(
@@ -145,16 +159,29 @@ pub fn macro_(
                 ඞSelf : Sized
             )
         );
-        let (intro_generics, _, where_clause_unsized) = generics_with_self.split_for_impl();
+        let (intro_generics_and_self, _, where_clause_unsized) = generics_with_self.split_for_impl();
         let (_, _, where_clause_sized) = generics_with_self_sized.split_for_impl();
         let own_ref_forwarding_impls =
             input
                 .items
                 .iter()
-                .map(|trait_item| own_ref_forwarding_impl(trait_item, Trait, fwd_generics))
+                .filter_map(|trait_item| own_ref_forwarding_impl(
+                    trait_item,
+                    Trait,
+                    fwd_generics,
+                    extension_trait_method_renaming_logic,
+                ))
+                .collect::<Vec<_>>()
         ;
+        let own_ref_defs = own_ref_forwarding_impls.iter().cloned().map(|mut method| {
+            method.default = None;
+            method.semi_token = Some(
+                Token![;](method.sig.paren_token.span.close())
+            );
+            method
+        });
         quote_spanned!(Span::mixed_site()=>
-            impl #intro_generics
+            impl #intro_generics_and_self
                 #UncheckedMutSelfTrait #fwd_generics
             for
                 ඞSelf
@@ -163,14 +190,20 @@ pub fn macro_(
                 #( #mut_self_method_impls )*
             }
 
-            impl #intro_generics
-                #Trait #fwd_generics
+            #extension_trait_pub
+            trait #ExtensionTraitName #intro_generics
+            #where_clause
+            {
+                #(#own_ref_defs)*
+            }
+
+            impl #intro_generics_and_self
+                #ExtensionTraitName #fwd_generics
             for
                 ::own_ref::OwnRef<'_, ඞSelf>
             #where_clause_unsized
-
             {
-                #( #own_ref_forwarding_impls )*
+                #(#own_ref_forwarding_impls)*
             }
         )
     });
@@ -180,14 +213,13 @@ pub fn macro_(
 fn is_owned_self_receiver(receiver: &Receiver)
   -> bool
 {
-    receiver.reference.is_none() // self
-    &&  matches!( // : Self
+    // self                      // : Self
+    receiver.reference.is_none() && matches!(
         &*receiver.ty,
         Type::Path(TypePath {
             qself: None,
             path,
-        })
-        if path.is_ident("Self")
+        }) if path.is_ident("Self")
     )
 }
 
@@ -203,70 +235,57 @@ fn own_ref_forwarding_impl(
     item: &TraitItem,
     Trait @ _: &Ident,
     fwd_generics: &TypeGenerics<'_>,
-) -> ImplItem
+    extension_trait_method_renaming_logic: &args::RenamePattern,
+) -> Option<TraitItemFn>
 {
-    match item {
-        TraitItem::Fn(fun) => {
-            let mut ret = fun.clone();
-            let self_ = fun.sig.receiver().map(|r| Ident::new("self", r.self_token.span()));
-            let mut each_fn_arg = Vec::<Ident>::new();
-            ret.sig.inputs.iter_mut().zip(0..).for_each(|(fn_arg, i)| {
-                let FnArg::Typed(fn_arg) = fn_arg
-                else {
-                    return;
-                };
-                let arg_ident = format_ident!("ඞ{i}", span=fn_arg.pat.span());
-                *fn_arg.pat = Pat::Verbatim(quote!( #arg_ident ));
-                each_fn_arg.push(arg_ident)
-            });
-            let forwarding_call = Some(
-                if matches!(
-                    fun.sig.receiver(),
-                    Some(self_)
-                    if is_owned_self_receiver(self_)
-                )
-                {
-                    let dyn_method_ownref = format_ident!(
-                        "ඞdyn_{}_ownref", fun.sig.ident,
-                    );
-                    let DynTraitOwnRef @ _ = format_ident!(
-                        "ඞDyn{Trait}OwnRef",
-                    );
-                    quote_spanned!(Span::mixed_site()=>
-                        unsafe {
-                            <ඞSelf as #DynTraitOwnRef #fwd_generics>::#dyn_method_ownref(
-                                &mut **::core::mem::ManuallyDrop::<::own_ref::OwnRef<'_, ඞSelf>>::new(
-                                    #self_
-                                )
-                                #(, #each_fn_arg)*
-                            )
-                        }
-                    )
-                } else {
-                    let method = &fun.sig.ident;
-                    let mb_self = self_.into_iter();
-                    quote_spanned!(Span::mixed_site()=>
-                        <ඞSelf as #Trait #fwd_generics>::#method(
-                            #(#mb_self ,)*
-                            #(#each_fn_arg),*
-                        )
-                    )
-                }
-            );
-            ret.semi_token = None;
-            ret.default = Some(parse_quote_spanned!(Span::mixed_site()=>
-                {
-                    #forwarding_call
-                }
-            ));
-            ImplItem::Verbatim(ret.into_token_stream())
-        },
-        TraitItem::Const(TraitItemConst {
-            ..
-        }) => todo!(),
-        TraitItem::Type(_) => todo!(),
-        TraitItem::Macro(_) => unimplemented!("TraitItem::Macro"),
-        TraitItem::Verbatim(_) => unimplemented!("TraitItem::Verbatim"),
-        _ => unimplemented!("Unrecognized `TraitItem`: {}", item.to_token_stream().to_string()),
+    let TraitItem::Fn(fun) = item
+    else {
+        return None;
+    };
+    if  matches!(
+            fun.sig.receiver(),
+            Some(self_) if is_owned_self_receiver(self_)
+        )
+        .not()
+    {
+        return None;
     }
+    let mut ret = fun.clone();
+    let self_ = fun.sig.receiver().map(|r| Ident::new("self", r.self_token.span())).unwrap();
+    let mut each_fn_arg = Vec::<Ident>::new();
+    ret.sig.inputs.iter_mut().zip(0..).skip(1).for_each(|(fn_arg, i)| {
+        let FnArg::Typed(fn_arg) = fn_arg
+        else {
+            unreachable!();
+        };
+        let arg_ident = format_ident!("ඞ{i}", span=fn_arg.pat.span());
+        *fn_arg.pat = Pat::Verbatim(quote!( #arg_ident ));
+        each_fn_arg.push(arg_ident)
+    });
+    let forwarding_call = {
+        let dyn_method_ownref = format_ident!(
+            "ඞdyn_{}_ownref", fun.sig.ident,
+        );
+        let DynTraitOwnRef @ _ = format_ident!(
+            "ඞDyn{Trait}OwnRef",
+        );
+        quote_spanned!(Span::mixed_site()=>
+            unsafe {
+                <ඞSelf as #DynTraitOwnRef #fwd_generics>::#dyn_method_ownref(
+                    &mut **::core::mem::ManuallyDrop::<::own_ref::OwnRef<'_, ඞSelf>>::new(
+                        #self_
+                    )
+                    #(, #each_fn_arg)*
+                )
+            }
+        )
+    };
+    ret.sig.ident = extension_trait_method_renaming_logic.rename(&ret.sig.ident);
+    ret.semi_token = None;
+    ret.default = Some(parse_quote_spanned!(Span::mixed_site()=>
+        {
+            #forwarding_call
+        }
+    ));
+    Some(ret)
 }

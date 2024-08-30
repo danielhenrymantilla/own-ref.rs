@@ -1,4 +1,7 @@
-#[::own_ref_proc_macros::dyn_self]
+#[::own_ref_proc_macros::dyn_self(
+    as pub trait FooOwn,
+    method_rename_logic = "ownref_{}",
+)]
 pub trait Foo<T> {
     fn foo(self, _: i8) -> bool;
     fn bar(&self, _: i8) -> bool;
@@ -8,7 +11,7 @@ pub trait Foo<T> {
 
 fn demo(it: ::own_ref::OwnRef<'_, dyn Foo<()>>)
 {
-    it.foo(42);
+    it.ownref_foo(42);
 }
 
 fn main() {}
