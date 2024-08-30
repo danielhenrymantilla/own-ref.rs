@@ -23,29 +23,29 @@ use ::syn::{*,
     Result, // explicitly shadow it
 };
 
-mod dyn_self;
+mod own_ref_extension;
 
 #[proc_macro_attribute] pub
-fn dyn_self(
+fn own_ref_extension(
     args: TokenStream,
     input: TokenStream,
 ) -> TokenStream
 {
-    dyn_self::macro_(args.into(), input.into())
+    own_ref_extension::macro_(args.into(), input.into())
         // .map(|ts| { println!("{ts}"); ts }) /* when debugging */
         // .map(|ts| {
         //     ::std::fs::write(
-        //         "/tmp/dyn_self.rs", ::prettyplease::unparse(&parse_quote!(#ts)),
+        //         "/tmp/own_ref_extension.rs", ::prettyplease::unparse(&parse_quote!(#ts)),
         //     ).unwrap();
         //     quote!(
-        //         include!("/tmp/dyn_self.rs");
+        //         include!("/tmp/own_ref_extension.rs");
         //     )
         // })
         .map_err(|mut err| {
-            // Prefix the compile error message(s) with `#[dyn_self]: `.
+            // Prefix the compile error message(s) with `#[own_ref_extension]: `.
             let mut errs = err.into_iter().map(|e| Error::new_spanned(
                 &e.to_compile_error(),
-                format!("#[dyn_self]: {e}"),
+                format!("#[own_ref_extension]: {e}"),
             ));
             err = errs.next().unwrap();
             errs.for_each(|e| err.combine(e));

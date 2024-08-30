@@ -8,7 +8,6 @@ mod kw {
 
 pub
 struct Args {
-    _as: Token![as],
     pub pub_: Visibility,
     _trait: Token![trait],
     pub TraitName: Ident,
@@ -35,7 +34,6 @@ impl Parse for Args {
       -> Result<Args>
     {
         let mut args = Self {
-            _as: input.parse()?,
             pub_: input.parse()?,
             _trait: input.parse()?,
             TraitName: input.parse()?,

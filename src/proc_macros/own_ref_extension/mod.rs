@@ -16,7 +16,7 @@ pub fn macro_(
     } = parse2(args).map_err(|mut err| {
         err.combine(Error::new(
             Span::mixed_site(),
-            r#"usage: `#[dyn_self(as <pub> <TraitName> [, rename = "<prefix>{}<suffix>"])]`"#,
+            r#"usage: `#[own_ref_extension(<pub> trait <TraitName> [, method_rename_logic = "<prefix>{}<suffix>"])]`"#,
         ));
         err
     })?;

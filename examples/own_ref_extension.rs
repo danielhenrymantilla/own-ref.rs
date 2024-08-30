@@ -1,5 +1,5 @@
-#[::own_ref_proc_macros::dyn_self(
-    as pub trait FooOwn,
+#[::own_ref_proc_macros::own_ref_extension(
+    pub trait FooOwn,
     method_rename_logic = "ownref_{}",
 )]
 pub trait Foo<T> {
