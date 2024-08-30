@@ -3,6 +3,9 @@
 #![warn(unsafe_op_in_unsafe_fn)]
 #![allow(unused_braces)]
 
+// TODO: docs.
+pub use ::own_ref_proc_macros::dyn_safe_owned_dispatch;
+
 #[macro_use]
 extern crate extension_traits;
 
@@ -52,6 +55,7 @@ mod prelude {
         crate::{
             OwnRef,
             own_ref,
+            dyn_safe_owned_dispatch,
             slot::{slot, slots},
             traits::{FnOwn, MaybeUninitExt as _},
         },

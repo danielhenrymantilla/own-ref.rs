@@ -23,29 +23,29 @@ use ::syn::{*,
     Result, // explicitly shadow it
 };
 
-mod own_ref_extension;
+mod dyn_safe_owned_dispatch;
 
 #[proc_macro_attribute] pub
-fn own_ref_extension(
+fn dyn_safe_owned_dispatch(
     args: TokenStream,
     input: TokenStream,
 ) -> TokenStream
 {
-    own_ref_extension::macro_(args.into(), input.into())
+    dyn_safe_owned_dispatch::macro_(args.into(), input.into())
         // .map(|ts| { println!("{ts}"); ts }) /* when debugging */
         // .map(|ts| {
         //     ::std::fs::write(
-        //         "/tmp/own_ref_extension.rs", ::prettyplease::unparse(&parse_quote!(#ts)),
+        //         "/tmp/dyn_safe_owned_dispatch.rs", ::prettyplease::unparse(&parse_quote!(#ts)),
         //     ).unwrap();
         //     quote!(
-        //         include!("/tmp/own_ref_extension.rs");
+        //         include!("/tmp/dyn_safe_owned_dispatch.rs");
         //     )
         // })
         .map_err(|mut err| {
-            // Prefix the compile error message(s) with `#[own_ref_extension]: `.
+            // Prefix the compile error message(s) with `#[dyn_safe_owned_dispatch]: `.
             let mut errs = err.into_iter().map(|e| Error::new_spanned(
                 &e.to_compile_error(),
-                format!("#[own_ref_extension]: {e}"),
+                format!("#[dyn_safe_owned_dispatch]: {e}"),
             ));
             err = errs.next().unwrap();
             errs.for_each(|e| err.combine(e));

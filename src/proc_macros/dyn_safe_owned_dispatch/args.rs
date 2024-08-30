@@ -1,56 +1,59 @@
-use ext::IdentExt;
-
 use super::*;
 
 mod kw {
-    ::syn::custom_keyword!(method_rename_logic);
+    ::syn::custom_keyword!(owned_dispatch_naming_template);
 }
 
 pub
 struct Args {
+    _as: Token![as],
     pub pub_: Visibility,
     _trait: Token![trait],
     pub TraitName: Ident,
-    pub rename: Option<Rename>,
-    trailing_comma: Option<Token![,]>,
-}
-
-pub
-struct Rename {
-    _leading_comma: Token![,],
-    _method_rename_logic: kw::method_rename_logic,
+    _comma: Token![,],
+    _owned_dispatch_naming_template: kw::owned_dispatch_naming_template,
     _eq: Token![=],
     pub pattern: RenamePattern,
+    _trailing_comma: Option<Token![,]>
 }
 
 pub
 struct RenamePattern {
     prefix: String,
     suffix: String,
+    span: Span,
 }
 
 impl Parse for Args {
     fn parse(input: ParseStream<'_>)
       -> Result<Args>
     {
-        let mut args = Self {
-            pub_: input.parse()?,
-            _trait: input.parse()?,
-            TraitName: input.parse()?,
-            rename: None,
-            trailing_comma: input.parse()?,
-        };
-        if input.is_empty() || args.trailing_comma.is_none() {
-            return Ok(args);
-        }
-        args.rename = Some(Rename {
-            _leading_comma: args.trailing_comma.unwrap(),
-            _method_rename_logic: input.parse()?,
-            _eq: input.parse()?,
-            pattern: input.parse()?,
-        });
-        args.trailing_comma = input.parse()?;
-        Ok(args)
+        let result = || -> Result<_> {
+            let args = Self {
+                _as: input.parse()?,
+                pub_: input.parse()?,
+                _trait: input.parse()?,
+                TraitName: input.parse()?,
+                _comma: input.parse()?,
+                _owned_dispatch_naming_template: input.parse()?,
+                _eq: input.parse()?,
+                pattern: input.parse()?,
+                _trailing_comma: input.parse()?,
+            };
+            Ok(args)
+        }();
+        result.map_err(|mut err| {
+            err.combine(Error::new(
+                Span::mixed_site(),
+                "\
+                    usage `#[dyn_safe_owned_dispatch(\
+                        <pub> trait <TraitName>, \
+                        method_rename_logic = \"<prefix>{}<suffix>\"\
+                    )]`\
+                ",
+            ));
+            err
+        })
     }
 }
 
@@ -59,33 +62,27 @@ impl Parse for RenamePattern {
       -> Result<RenamePattern>
     {
         // Validate that the format string is of the form `"<ident_prefix>{}<ident_suffix>"`.
-        let value = LitStr::value(&input.parse()?);
-        if let Some((prefix, suffix)) = value.split_once("{}") {
+        let lit_str: LitStr = input.parse()?;
+        if let Some((prefix, suffix)) = lit_str.value().split_once("{}") {
             let validate = |s: &str| {
                 false
                 || s.is_empty()
                 || s == "_"
-                || Parser::parse_str(Ident::parse_any, s).is_ok()
+                || (
+                    Parser::parse_str(<Ident as ext::IdentExt>::parse_any, s).is_ok()
+                    &&
+                    s.chars().any(|c| c.is_whitespace()).not()
+                )
             };
             if validate(prefix) && validate(suffix) {
                 return Ok(RenamePattern {
                     prefix: prefix.into(),
                     suffix: suffix.into(),
+                    span: lit_str.span(),
                 });
             }
         }
-        Err(input.error(r#"Expected a `"<ident_prefix>{}<ident_suffix>"`"#))
-    }
-}
-
-impl Default for RenamePattern {
-    fn default()
-      -> RenamePattern
-    {
-        RenamePattern {
-            prefix: "ownref_".into(),
-            suffix: "".into(),
-        }
+        Err(input.error(r#"expected `"<ident_prefix>{}<ident_suffix>"`"#))
     }
 }
 
@@ -96,10 +93,10 @@ impl RenamePattern {
         method_name: &Ident,
     ) -> Ident
     {
-        let Self { prefix, suffix } = self;
+        let Self { prefix, suffix, span } = self;
         Ident::new(
             &format!("{prefix}{}{suffix}", method_name),
-            method_name.span(),
+            span.resolved_at(method_name.span()),
         )
     }
 }
