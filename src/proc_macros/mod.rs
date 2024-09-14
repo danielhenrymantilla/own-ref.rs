@@ -23,34 +23,40 @@ use ::syn::{*,
     Result, // explicitly shadow it
 };
 
-mod dyn_safe_owned_dispatch;
+define_proc_macro!(dyn_safe_owned_dispatch);
+define_proc_macro!(dyn_safe);
 
-#[proc_macro_attribute] pub
-fn dyn_safe_owned_dispatch(
-    args: TokenStream,
-    input: TokenStream,
-) -> TokenStream
-{
-    dyn_safe_owned_dispatch::macro_(args.into(), input.into())
-        // .map(|ts| { println!("{ts}"); ts }) /* when debugging */
-        // .map(|ts| {
-        //     ::std::fs::write(
-        //         "/tmp/dyn_safe_owned_dispatch.rs", ::prettyplease::unparse(&parse_quote!(#ts)),
-        //     ).unwrap();
-        //     quote!(
-        //         include!("/tmp/dyn_safe_owned_dispatch.rs");
-        //     )
-        // })
-        .map_err(|mut err| {
-            // Prefix the compile error message(s) with `#[dyn_safe_owned_dispatch]: `.
-            let mut errs = err.into_iter().map(|e| Error::new_spanned(
-                &e.to_compile_error(),
-                format!("#[dyn_safe_owned_dispatch]: {e}"),
-            ));
-            err = errs.next().unwrap();
-            errs.for_each(|e| err.combine(e));
-            err
-        })
-        .unwrap_or_else(Error::into_compile_error)
-        .into()
-}
+macro_rules! define_proc_macro {( $macro_name:ident $(,)? ) => (
+    mod $macro_name;
+
+    #[proc_macro_attribute] pub
+    fn $macro_name(
+        args: TokenStream,
+        input: TokenStream,
+    ) -> TokenStream
+    {
+        $macro_name::macro_(args.into(), input.into())
+            // .map(|ts| { println!("{ts}"); ts }) /* when debugging */
+            // .map(|ts| {
+            //     let file_name = concat!("/tmp/", stringify!($macro_name), ".rs");
+            //     ::std::fs::write(
+            //         file_name, ::prettyplease::unparse(&parse_quote!(#ts)),
+            //     ).unwrap();
+            //     quote!(
+            //         include!(file_name);
+            //     )
+            // })
+            .map_err(|mut err| {
+                // Prefix the compile error message(s) with `#[$macro_name]: `.
+                let mut errs = err.into_iter().map(|e| Error::new_spanned(
+                    &e.to_compile_error(),
+                    format!("#[{}]: {e}", stringify!($macro_name)),
+                ));
+                err = errs.next().unwrap();
+                errs.for_each(|e| err.combine(e));
+                err
+            })
+            .unwrap_or_else(Error::into_compile_error)
+            .into()
+    }
+)} use define_proc_macro;

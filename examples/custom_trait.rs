@@ -1,5 +1,10 @@
 use ::own_ref::prelude::*;
 
+#[dyn_safe(impl for OwnRef)]
+pub trait Quux<T> {
+    fn quux(self, _: i8, a: bool);
+}
+
 #[dyn_safe_owned_dispatch(
     as pub trait DynFooExt,
     owned_dispatch_naming_template = "dyn_{}",

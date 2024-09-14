@@ -4,6 +4,9 @@
 #![allow(unused_braces)]
 
 // TODO: docs.
+pub use ::own_ref_proc_macros::dyn_safe;
+
+// TODO: docs.
 pub use ::own_ref_proc_macros::dyn_safe_owned_dispatch;
 
 #[macro_use]
@@ -55,6 +58,7 @@ mod prelude {
         crate::{
             OwnRef,
             own_ref,
+            dyn_safe,
             dyn_safe_owned_dispatch,
             slot::{slot, slots},
             traits::{FnOwn, MaybeUninitExt as _},
