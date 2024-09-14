@@ -23,7 +23,7 @@ pub trait Foo<T> {
 
 impl Foo<()> for OwnRef<'_, dyn Foo<()>> {
     fn foo(self, it: i8, b: bool) -> bool {
-        // Available _via_ the `OwnRefFoo` extension trait created above.
+        // Available _via_ the `DynFooExt` extension trait created above.
         self.dyn_foo(it, b)
     }
 }
