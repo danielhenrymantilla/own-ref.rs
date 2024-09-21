@@ -42,8 +42,8 @@ impl Parse for Args {
             };
             Ok(args)
         }();
-        result.map_err(|mut err| {
-            err.combine(Error::new(
+        result.map_err(|parse_err| {
+            let mut err = Error::new(
                 Span::mixed_site(),
                 "\
                     usage `#[dyn_safe_owned_dispatch(\
@@ -51,7 +51,8 @@ impl Parse for Args {
                         method_rename_logic = \"<prefix>{}<suffix>\"\
                     )]`\
                 ",
-            ));
+            );
+            err.combine(parse_err);
             err
         })
     }
