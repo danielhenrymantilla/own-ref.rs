@@ -1,15 +1,25 @@
 use ::own_ref::prelude::*;
 
-#[dyn_safe(impl for OwnRef)]
-pub trait Quux<T> {
+#[dyn_safe(impl for OwnRef<Self>)]
+pub
+trait Quux<T> {
     fn quux(self, _: i8, a: bool);
+}
+
+mod module {
+    use super::{OwnRef, Quux};
+
+    fn _check(r: OwnRef<'_, dyn Quux<()>>) {
+        r.quux(42, true);
+    }
 }
 
 #[dyn_safe_owned_dispatch(
     as pub trait DynFooExt,
     owned_dispatch_naming_template = "dyn_{}",
 )]
-pub trait Foo<T> {
+pub
+trait Foo<T> {
     fn foo(self, _: i8, a: bool)
       -> bool
     ;
