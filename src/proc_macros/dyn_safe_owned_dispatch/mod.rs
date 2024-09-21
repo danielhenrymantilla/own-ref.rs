@@ -7,14 +7,33 @@ pub fn macro_(
     input: TokenStream2,
 ) -> Result<TokenStream2>
 {
-    let mut ret = quote!();
     let args::Args {
         pub_: extension_trait_pub,
         TraitName: ExtensionTraitName @ _,
         pattern: extension_trait_method_renaming_logic,
         ..
     } = &parse2(args)?;
-    let mut input: ItemTrait = parse2(input)?;
+    let input: ItemTrait = parse2(input)?;
+    common_logic(
+        input,
+        Some((extension_trait_pub, ExtensionTraitName, extension_trait_method_renaming_logic)),
+        None,
+    )
+}
+
+pub(super) // `#[dyn_safe]` uses this too
+fn common_logic(
+    mut input: ItemTrait,
+    mb_ext_trait: Option<(&Visibility, &Ident, &args::RenamePattern)>,
+    OwnRef @ _: Option<Path>,
+) -> Result<TokenStream2>
+{
+    let mut ret = quote!();
+    let mut storage = None;
+    let extension_trait_method_renaming_logic = mb_ext_trait.map_or_else(
+        || &*storage.insert(args::RenamePattern::identity()),
+        |(_, _, it)| it,
+    );
     let Trait @ _ = &input.ident;
     let implTrait @ _ = &format_ident!("ඞimpl{Trait}");
     let (intro_generics, fwd_generics, where_clause) = &input.generics.split_for_impl();
@@ -199,28 +218,37 @@ pub fn macro_(
                 #( #ref_mut_self_method_impls )*
             }
         ));
-        ret.extend(quote_spanned!(ExtensionTraitName.span() =>
+        let MbExtTrait @ _ = if let Some((extension_trait_pub, ExtensionTrait, _)) = mb_ext_trait {
+            ret.extend(quote_spanned!(ExtensionTrait.span() =>
+                #[doc = concat!(
+                    "Extension trait allowing `dyn`amic dispatch of the (owned) `self` ",
+                    "methods of [`", ::core::stringify!(#Trait), "`],\n",
+                    "\n",
+                    "from within an ",
+                    r"<code>[OwnRef][::own_ref::OwnRef]\<\'_, dyn [", ::core::stringify!(#Trait), r"] + …\></code> receiver.",
+                )]
+                #extension_trait_pub
+                trait #ExtensionTrait #intro_generics
+                #where_clause
+                {
+                    #( #own_ref_defs )*
+                }
+            ));
+            ExtensionTrait
+        } else {
+            Trait
+        };
+        let OwnRef @ _ = OwnRef.unwrap_or_else(|| parse_quote!(
+            ::own_ref::OwnRef
+        ));
+        ret.extend(quote!(
             impl #intro_generics_with_implTrait
-                #ExtensionTraitName #fwd_generics
+                #MbExtTrait #fwd_generics
             for
-                ::own_ref::OwnRef<'_, #implTrait>
+                #OwnRef<'_, #implTrait>
             #where_clause_unsized
             {
                 #( #own_ref_forwarding_impls )*
-            }
-
-            #[doc = concat!(
-                "Extension trait allowing `dyn`amic dispatch of the (owned) `self` ",
-                "methods of [`", ::core::stringify!(#Trait), "`],\n",
-                "\n",
-                "from within an ",
-                r"<code>[OwnRef][::own_ref::OwnRef]\<\'_, dyn [", ::core::stringify!(#Trait), r"] + …\></code> receiver.",
-            )]
-            #extension_trait_pub
-            trait #ExtensionTraitName #intro_generics
-            #where_clause
-            {
-                #( #own_ref_defs )*
             }
         ));
     }

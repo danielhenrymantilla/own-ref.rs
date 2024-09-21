@@ -10,5 +10,10 @@ pub fn macro_(
     let args::Args {
         OwnRef, ..
     } = parse2(args)?;
-    Err(Error::new(Span::mixed_site(), "TODO"))
+    let input: ItemTrait = parse2(input)?;
+    super::dyn_safe_owned_dispatch::common_logic(
+        input,
+        None,
+        Some(OwnRef),
+    )
 }

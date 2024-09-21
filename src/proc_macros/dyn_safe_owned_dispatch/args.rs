@@ -24,6 +24,18 @@ struct RenamePattern {
     span: Span,
 }
 
+impl RenamePattern {
+    pub
+    fn identity() -> Self
+    {
+        Self {
+            prefix: "".into(),
+            suffix: "".into(),
+            span: Span::mixed_site(),
+        }
+    }
+}
+
 impl Parse for Args {
     fn parse(input: ParseStream<'_>)
       -> Result<Args>
